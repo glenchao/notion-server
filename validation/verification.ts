@@ -1,7 +1,8 @@
 /**
  * Handles webhook verification requests from Notion
- * Verification requests typically don't have a signature header and contain a token starting with "secret_"
- * According to Notion docs, verification requests contain a "verification_token" field in the JSON payload
+ * Verification requests contain a "verification_token" field in the JSON payload
+ * Note: Verification requests may also include the X-Notion-Signature header,
+ * so we check the payload content rather than header presence
  * @param req - The incoming request
  * @returns Response if it's a verification request, null otherwise
  */

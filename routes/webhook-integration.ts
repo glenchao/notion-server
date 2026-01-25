@@ -18,27 +18,19 @@ export async function handleIntegrationWebhook(
     return new Response("Method not allowed", { status: 405 });
   }
 
-  // Check if this is a verification request (Notion sends a token starting with "secret_")
-  // Verification requests typically don't have a signature header
-  // Official header name per Notion docs is X-Notion-Signature
-  const hasSignature = req.headers.get(HEADER_NOTION_SIGNATURE);
-  console.log("[webhook-integration] Signature check:", {
-    hasXNotionSignature: !!hasSignature,
-  });
-
-  if (!hasSignature) {
-    console.log("[webhook-integration] No signature found, checking for verification request");
-    const verificationResponse = await handleVerificationRequest(req);
-    if (verificationResponse) {
-      console.log("[webhook-integration] Handled verification request successfully");
-      return verificationResponse;
-    }
-    console.log("[webhook-integration] Not a verification request, continuing with validation");
+  // Check if this is a verification request first
+  // Verification requests contain a "verification_token" field in the payload
+  // Note: Verification requests may also include the X-Notion-Signature header,
+  // so we should check the payload content rather than relying on header presence
+  console.log("[webhook-integration] Checking for verification request");
+  const verificationResponse = await handleVerificationRequest(req);
+  if (verificationResponse) {
+    console.log("[webhook-integration] Handled verification request successfully");
+    return verificationResponse;
   }
 
-  // If we have a signature, this is a regular webhook - validate it
-  // The original request body is still available since we used clone() above
-  console.log("[webhook-integration] Starting webhook validation");
+  // If not a verification request, this is a regular webhook - validate it
+  console.log("[webhook-integration] Not a verification request, starting webhook validation");
   const validation = await validateWebhookRequest(req, webhookSecret);
 
   if (!validation.valid) {
