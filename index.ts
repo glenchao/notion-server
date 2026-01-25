@@ -1,5 +1,6 @@
-import { Client } from "@notionhq/client";
-import { validateWebhookRequest, validateLiteWebhookRequest } from "./webhook";
+import { handleRoot } from "./routes/root";
+import { handleIntegrationWebhook } from "./routes/webhook-integration";
+import { handleLiteWebhook } from "./routes/webhook-lite";
 
 const port = process.env.PORT || 3000;
 const webhookSecret = process.env.NOTION_WEBHOOK_SECRET;
@@ -16,51 +17,9 @@ if (!liteWebhookApiKey) {
 const server = Bun.serve({
   port: Number(port),
   routes: {
-    "/": () => new Response("Bun Notion Webhook Server!"),
-    "/webhook/integration": async (req) => {
-      // Validate the integration webhook request using HMAC signature
-      const validation = await validateWebhookRequest(req, webhookSecret || "");
-
-      if (!validation.valid) {
-        return validation.response;
-      }
-
-      // Handle the validated webhook payload
-      const payload = validation.payload;
-      console.log("Received valid integration webhook:", payload);
-
-      // TODO: Process the integration webhook payload here
-      // For now, just return success
-      return new Response(
-        JSON.stringify({ success: true, received: true, type: "integration" }),
-        {
-          status: 200,
-          headers: { "Content-Type": "application/json" },
-        }
-      );
-    },
-    "/webhook/lite": async (req) => {
-      // Validate the lite webhook request using API key
-      const validation = await validateLiteWebhookRequest(req, liteWebhookApiKey || "");
-
-      if (!validation.valid) {
-        return validation.response;
-      }
-
-      // Handle the validated webhook payload
-      const payload = validation.payload;
-      console.log("Received valid lite webhook:", payload);
-
-      // TODO: Process the lite webhook payload here
-      // For now, just return success
-      return new Response(
-        JSON.stringify({ success: true, received: true, type: "lite" }),
-        {
-          status: 200,
-          headers: { "Content-Type": "application/json" },
-        }
-      );
-    },
+    "/": () => handleRoot(),
+    "/webhook/integration": async (req) => handleIntegrationWebhook(req, webhookSecret || ""),
+    "/webhook/lite": async (req) => handleLiteWebhook(req, liteWebhookApiKey || ""),
   },
 });
 
