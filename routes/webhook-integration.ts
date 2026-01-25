@@ -55,14 +55,137 @@ export async function handleIntegrationWebhook(
     payload: payload,
   });
 
-  // TODO: Process the integration webhook payload here
-  // For now, just return success
-  console.log("[webhook-integration] Processing webhook payload and returning success");
-  return new Response(
-    JSON.stringify({ success: true, received: true, type: "integration" }),
-    {
-      status: 200,
-      headers: { "Content-Type": "application/json" },
-    },
-  );
+  // Process the webhook payload
+  try {
+    const result = await handleWebhookPayload(payload);
+    return new Response(
+      JSON.stringify({ success: true, ...result }),
+      {
+        status: 200,
+        headers: { "Content-Type": "application/json" },
+      },
+    );
+  } catch (error) {
+    console.error("[webhook-integration] Error processing webhook payload:", error);
+    return new Response(
+      JSON.stringify({ 
+        success: false, 
+        error: error instanceof Error ? error.message : "Unknown error" 
+      }),
+      {
+        status: 500,
+        headers: { "Content-Type": "application/json" },
+      },
+    );
+  }
+}
+
+/**
+ * Handles different types of webhook payloads from Notion
+ * @param payload - The validated webhook payload
+ * @returns Processing result
+ */
+async function handleWebhookPayload(payload: unknown): Promise<{
+  eventType?: string;
+  objectType?: string;
+  processed: boolean;
+}> {
+  if (!payload || typeof payload !== "object") {
+    throw new Error("Invalid payload: expected an object");
+  }
+
+  const webhookPayload = payload as Record<string, unknown>;
+  
+  // Extract event information
+  const eventType = webhookPayload.type as string | undefined;
+  const objectType = webhookPayload.object as string | undefined;
+  const eventData = webhookPayload.data as Record<string, unknown> | undefined;
+
+  console.log("[webhook-integration] Processing webhook event:", {
+    eventType,
+    objectType,
+    hasData: !!eventData,
+  });
+
+  // Handle page-specific events
+  if (objectType === "page" || eventType?.startsWith("page.")) {
+    return await handlePageWebhookEvent(eventType, eventData);
+  }
+
+  // Handle other object types if needed in the future
+  console.log("[webhook-integration] Unhandled webhook object type:", objectType);
+  return {
+    eventType,
+    objectType,
+    processed: false,
+  };
+}
+
+/**
+ * Handles page webhook events from Notion
+ * @param eventType - The type of page event (e.g., "page.created", "page.updated", "page.deleted")
+ * @param eventData - The page event data
+ * @returns Processing result
+ */
+async function handlePageWebhookEvent(
+  eventType: string | undefined,
+  eventData: Record<string, unknown> | undefined,
+): Promise<{
+  eventType?: string;
+  objectType: string;
+  processed: boolean;
+}> {
+  if (!eventData) {
+    console.warn("[webhook-integration] Page event received but no data provided");
+    return {
+      eventType,
+      objectType: "page",
+      processed: false,
+    };
+  }
+
+  const pageId = eventData.id as string | undefined;
+  const pageTitle = eventData.title as string | undefined;
+  const pageUrl = eventData.url as string | undefined;
+
+  console.log("[webhook-integration] Processing page event:", {
+    eventType,
+    pageId,
+    pageTitle,
+    pageUrl,
+  });
+
+  // Handle different page event types
+  switch (eventType) {
+    case "page.created":
+    case "page.added":
+      console.log("[webhook-integration] Page created:", { pageId, pageTitle });
+      // TODO: Add your page creation logic here
+      // Example: Save to database, send notification, etc.
+      break;
+
+    case "page.updated":
+    case "page.content_changed":
+      console.log("[webhook-integration] Page updated:", { pageId, pageTitle });
+      // TODO: Add your page update logic here
+      // Example: Update database, sync changes, etc.
+      break;
+
+    case "page.deleted":
+    case "page.removed":
+      console.log("[webhook-integration] Page deleted:", { pageId });
+      // TODO: Add your page deletion logic here
+      // Example: Remove from database, cleanup resources, etc.
+      break;
+
+    default:
+      console.log("[webhook-integration] Unknown page event type:", eventType);
+      break;
+  }
+
+  return {
+    eventType,
+    objectType: "page",
+    processed: true,
+  };
 }
