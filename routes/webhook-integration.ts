@@ -1,5 +1,6 @@
 import { validateWebhookRequest } from "../validation/validation";
 import { handleVerificationRequest } from "../validation/verification";
+import { HEADER_NOTION_SIGNATURE } from "../utilities/Constants";
 
 export async function handleIntegrationWebhook(
   req: Request,
@@ -19,9 +20,10 @@ export async function handleIntegrationWebhook(
 
   // Check if this is a verification request (Notion sends a token starting with "secret_")
   // Verification requests typically don't have a signature header
-  const hasSignature = req.headers.get("notion-signature");
+  // Official header name per Notion docs is X-Notion-Signature
+  const hasSignature = req.headers.get(HEADER_NOTION_SIGNATURE);
   console.log("[webhook-integration] Signature check:", {
-    hasSignature: !!hasSignature,
+    hasXNotionSignature: !!hasSignature,
   });
 
   if (!hasSignature) {
