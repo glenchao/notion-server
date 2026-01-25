@@ -1,5 +1,6 @@
-import { validateWebhookRequest } from "../validation/validation";
-import { handleVerificationRequest } from "../validation/verification";
+import { validateWebhookRequest } from "../../validation/validation";
+import { handleVerificationRequest } from "../../validation/verification";
+import { handlePageWebhookEvent } from "./handlePageWebhookEvent";
 
 export async function handleIntegrationWebhook(
   req: Request,
@@ -119,76 +120,5 @@ async function handleWebhookPayload(payload: unknown): Promise<{
     eventType,
     objectType,
     processed: false,
-  };
-}
-
-/**
- * Handles page webhook events from Notion
- * @param eventType - The type of page event (e.g., "page.created", "page.updated", "page.deleted")
- * @param eventData - The page event data
- * @returns Processing result
- */
-async function handlePageWebhookEvent(
-  eventType: string | undefined,
-  eventData: Record<string, unknown> | undefined,
-): Promise<{
-  eventType?: string;
-  objectType: string;
-  processed: boolean;
-}> {
-  if (!eventData) {
-    console.warn(
-      "[webhook-integration] Page event received but no data provided",
-    );
-    return {
-      eventType,
-      objectType: "page",
-      processed: false,
-    };
-  }
-
-  const pageId = eventData.id as string | undefined;
-  const pageTitle = eventData.title as string | undefined;
-  const pageUrl = eventData.url as string | undefined;
-
-  console.log("[webhook-integration] Processing page event:", {
-    eventType,
-    pageId,
-    pageTitle,
-    pageUrl,
-  });
-
-  // Handle different page event types
-  switch (eventType) {
-    case "page.created":
-    case "page.added":
-      console.log("[webhook-integration] Page created:", { pageId, pageTitle });
-      // TODO: Add your page creation logic here
-      // Example: Save to database, send notification, etc.
-      break;
-
-    case "page.updated":
-    case "page.content_changed":
-      console.log("[webhook-integration] Page updated:", { pageId, pageTitle });
-      // TODO: Add your page update logic here
-      // Example: Update database, sync changes, etc.
-      break;
-
-    case "page.deleted":
-    case "page.removed":
-      console.log("[webhook-integration] Page deleted:", { pageId });
-      // TODO: Add your page deletion logic here
-      // Example: Remove from database, cleanup resources, etc.
-      break;
-
-    default:
-      console.log("[webhook-integration] Unknown page event type:", eventType);
-      break;
-  }
-
-  return {
-    eventType,
-    objectType: "page",
-    processed: true,
   };
 }
