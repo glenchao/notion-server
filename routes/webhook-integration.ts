@@ -1,6 +1,5 @@
 import { validateWebhookRequest } from "../validation/validation";
 import { handleVerificationRequest } from "../validation/verification";
-import { HEADER_NOTION_SIGNATURE } from "../utilities/Constants";
 
 export async function handleIntegrationWebhook(
   req: Request,
@@ -25,12 +24,16 @@ export async function handleIntegrationWebhook(
   console.log("[webhook-integration] Checking for verification request");
   const verificationResponse = await handleVerificationRequest(req);
   if (verificationResponse) {
-    console.log("[webhook-integration] Handled verification request successfully");
+    console.log(
+      "[webhook-integration] Handled verification request successfully",
+    );
     return verificationResponse;
   }
 
   // If not a verification request, this is a regular webhook - validate it
-  console.log("[webhook-integration] Not a verification request, starting webhook validation");
+  console.log(
+    "[webhook-integration] Not a verification request, starting webhook validation",
+  );
   const validation = await validateWebhookRequest(req, webhookSecret);
 
   if (!validation.valid) {
@@ -45,26 +48,27 @@ export async function handleIntegrationWebhook(
   const payload = validation.payload;
   console.log("[webhook-integration] Received valid integration webhook:", {
     payloadType: typeof payload,
-    payloadKeys: payload && typeof payload === "object" ? Object.keys(payload) : null,
+    payloadKeys:
+      payload && typeof payload === "object" ? Object.keys(payload) : null,
     payload: payload,
   });
 
   // Process the webhook payload
   try {
     const result = await handleWebhookPayload(payload);
-    return new Response(
-      JSON.stringify({ success: true, ...result }),
-      {
-        status: 200,
-        headers: { "Content-Type": "application/json" },
-      },
-    );
+    return new Response(JSON.stringify({ success: true, ...result }), {
+      status: 200,
+      headers: { "Content-Type": "application/json" },
+    });
   } catch (error) {
-    console.error("[webhook-integration] Error processing webhook payload:", error);
+    console.error(
+      "[webhook-integration] Error processing webhook payload:",
+      error,
+    );
     return new Response(
-      JSON.stringify({ 
-        success: false, 
-        error: error instanceof Error ? error.message : "Unknown error" 
+      JSON.stringify({
+        success: false,
+        error: error instanceof Error ? error.message : "Unknown error",
       }),
       {
         status: 500,
@@ -89,7 +93,7 @@ async function handleWebhookPayload(payload: unknown): Promise<{
   }
 
   const webhookPayload = payload as Record<string, unknown>;
-  
+
   // Extract event information
   const eventType = webhookPayload.type as string | undefined;
   const objectType = webhookPayload.object as string | undefined;
@@ -107,7 +111,10 @@ async function handleWebhookPayload(payload: unknown): Promise<{
   }
 
   // Handle other object types if needed in the future
-  console.log("[webhook-integration] Unhandled webhook object type:", objectType);
+  console.log(
+    "[webhook-integration] Unhandled webhook object type:",
+    objectType,
+  );
   return {
     eventType,
     objectType,
@@ -130,7 +137,9 @@ async function handlePageWebhookEvent(
   processed: boolean;
 }> {
   if (!eventData) {
-    console.warn("[webhook-integration] Page event received but no data provided");
+    console.warn(
+      "[webhook-integration] Page event received but no data provided",
+    );
     return {
       eventType,
       objectType: "page",

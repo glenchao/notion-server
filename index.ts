@@ -2,9 +2,9 @@ import { handleRoot } from "./routes/root";
 import { handleIntegrationWebhook } from "./routes/webhook-integration";
 import { handleLiteWebhook } from "./routes/webhook-lite";
 
-const port = process.env.PORT || 3000;
-const webhookSecret = process.env.NOTION_WEBHOOK_SECRET;
-const liteWebhookApiKey = process.env.LITE_WEBHOOK_API_KEY;
+const port = Bun.env.PORT || 3000;
+const webhookSecret = Bun.env.NOTION_WEBHOOK_SECRET;
+const liteWebhookApiKey = Bun.env.LITE_WEBHOOK_API_KEY;
 
 if (!webhookSecret) {
   console.warn(
