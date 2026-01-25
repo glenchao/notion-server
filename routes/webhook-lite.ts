@@ -1,4 +1,4 @@
-import { validateLiteWebhookRequest } from "../webhook";
+import { validateLiteWebhookRequest } from "../validation/validation";
 
 export async function handleLiteWebhook(
   req: Request,

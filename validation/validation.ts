@@ -8,7 +8,7 @@
 export async function validateWebhookSignature(
   body: string,
   signature: string,
-  secret: string
+  secret: string,
 ): Promise<boolean> {
   if (!secret) {
     return false;
@@ -26,13 +26,13 @@ export async function validateWebhookSignature(
       keyData,
       { name: "HMAC", hash: "SHA-256" },
       false,
-      ["sign"]
+      ["sign"],
     );
 
     const signatureBuffer = await crypto.subtle.sign(
       "HMAC",
       cryptoKey,
-      messageData
+      messageData,
     );
 
     // Convert signature to hex string
@@ -64,7 +64,7 @@ export async function validateWebhookSignature(
  */
 export async function validateWebhookRequest(
   request: Request,
-  secret: string
+  secret: string,
 ): Promise<
   | { valid: true; payload: unknown }
   | { valid: false; response: Response }
@@ -129,7 +129,7 @@ export async function validateWebhookRequest(
  */
 export async function validateLiteWebhookRequest(
   request: Request,
-  apiKey: string
+  apiKey: string,
 ): Promise<
   | { valid: true; payload: unknown }
   | { valid: false; response: Response }
@@ -145,7 +145,7 @@ export async function validateLiteWebhookRequest(
   // Get the API key from headers (check both Authorization Bearer and X-API-Key)
   const authHeader = request.headers.get("authorization");
   const apiKeyHeader = request.headers.get("x-api-key");
-  
+
   let providedKey: string | null = null;
   if (authHeader?.startsWith("Bearer ")) {
     providedKey = authHeader.substring(7);
@@ -156,7 +156,10 @@ export async function validateLiteWebhookRequest(
   if (!providedKey) {
     return {
       valid: false,
-      response: new Response("Missing API key (use Authorization: Bearer <key> or X-API-Key header)", { status: 401 }),
+      response: new Response(
+        "Missing API key (use Authorization: Bearer <key> or X-API-Key header)",
+        { status: 401 },
+      ),
     };
   }
 
