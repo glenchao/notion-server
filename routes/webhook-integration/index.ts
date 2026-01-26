@@ -1,6 +1,6 @@
+import { getProcessorsToExecute } from "../../utilities/processorLoader";
 import { validateWebhookRequest } from "../../validation/validation";
 import { handleVerificationRequest } from "../../validation/verification";
-import { handlePageWebhookEvent } from "./handlePageWebhookEvent";
 
 export async function handleIntegrationWebhook(
   req: Request,
@@ -88,6 +88,7 @@ async function handleWebhookPayload(payload: unknown): Promise<{
   eventType?: string;
   objectType?: string;
   processed: boolean;
+  processorsExecuted?: number;
 }> {
   if (!payload || typeof payload !== "object") {
     throw new Error("Invalid payload: expected an object");
@@ -97,7 +98,9 @@ async function handleWebhookPayload(payload: unknown): Promise<{
 
   // Extract event information
   const eventType = webhookPayload.type as string | undefined;
-  const entity = webhookPayload.entity as { id: string; type: string } | undefined;
+  const entity = webhookPayload.entity as
+    | { id: string; type: string }
+    | undefined;
   const eventData = webhookPayload.data as Record<string, unknown> | undefined;
 
   console.log("[webhook-integration] Processing webhook event:", {
@@ -106,20 +109,46 @@ async function handleWebhookPayload(payload: unknown): Promise<{
     hasData: !!eventData,
   });
 
-  // Handle page-specific events
-  // Check if entity type is "page" or if event type starts with "page."
-  if (entity?.type === "page" || eventType?.startsWith("page.")) {
-    return await handlePageWebhookEvent(eventType, webhookPayload);
-  }
+  // Get all processors that should be executed
+  const processorsToExecute = await getProcessorsToExecute(webhookPayload);
 
-  // Handle other object types if needed in the future
-  console.log(
-    "[webhook-integration] Unhandled webhook object type:",
-    objectType,
+  // Execute all matching processors in parallel
+  const executionResults = await Promise.allSettled(
+    processorsToExecute.map(async (processor) => {
+      console.log(
+        `[webhook-integration] Executing processor: ${processor.name} (${processor.id})`,
+      );
+      try {
+        const result = await processor.executor(webhookPayload);
+        console.log(
+          `[webhook-integration] Processor ${processor.name} completed:`,
+          result,
+        );
+        return { processor: processor.name, success: result };
+      } catch (error) {
+        console.error(
+          `[webhook-integration] Processor ${processor.name} failed:`,
+          error,
+        );
+        return {
+          processor: processor.name,
+          success: false,
+          error: error instanceof Error ? error.message : "Unknown error",
+        };
+      }
+    }),
   );
+
+  // Count successful executions
+  const successfulExecutions = executionResults.filter(
+    (result) => result.status === "fulfilled" && result.value.success === true,
+  ).length;
+
+  const objectType = entity?.type;
   return {
     eventType,
     objectType,
-    processed: false,
+    processed: successfulExecutions > 0,
+    processorsExecuted: successfulExecutions,
   };
 }

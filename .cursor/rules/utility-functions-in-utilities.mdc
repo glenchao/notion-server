@@ -1,0 +1,44 @@
+---
+description: Utility functions should be placed in the utilities/ folder
+alwaysApply: true
+---
+
+# Utility Functions Location
+
+All reusable utility functions should be placed in the `utilities/` folder at the repository root.
+
+## Rules
+
+- **Utility functions** (helper functions, formatters, validators, etc.) belong in `utilities/`
+- **Domain-specific utilities** should be grouped by domain (e.g., `utilities/notionUtils.ts` for Notion-related utilities)
+- **Generic utilities** can be placed in appropriately named files (e.g., `utilities/stringUtils.ts`, `utilities/dateUtils.ts`)
+- Functions should be **exported** so they can be imported and reused across the codebase
+
+## Examples
+
+```typescript
+// ✅ GOOD - Utility function in utilities/
+// utilities/notionUtils.ts
+export function normalizeNotionId(id: string): string {
+  return id.replace(/-/g, "").toLowerCase();
+}
+
+// processors/someProcessor.ts
+import { normalizeNotionId } from "../utilities/notionUtils";
+```
+
+```typescript
+// ❌ BAD - Utility function defined inline in a processor
+// processors/someProcessor.ts
+function normalizeNotionId(id: string): string {
+  return id.replace(/-/g, "").toLowerCase();
+}
+```
+
+## When to Extract to Utilities
+
+Extract a function to `utilities/` when:
+- It's used in multiple places
+- It's a pure function (no side effects)
+- It performs a common operation (formatting, validation, transformation)
+- It's not specific to a single feature or route
