@@ -7,12 +7,12 @@ import { getNotionClient } from "../../../utilities/notionClient";
 async function insertTestTable(pageId: string): Promise<void> {
   const client = getNotionClient();
   if (!client) {
-    console.error("[pageUpdated] Notion client not available. NOTION_API_KEY may be missing.");
+    console.error("[pagePropertiesUpdated] Notion client not available. NOTION_API_KEY may be missing.");
     return;
   }
 
   try {
-    console.log("[pageUpdated] Inserting test table into page:", pageId);
+    console.log("[pagePropertiesUpdated] Inserting test table into page:", pageId);
 
     await client.blocks.children.append({
       block_id: pageId,
@@ -134,43 +134,54 @@ async function insertTestTable(pageId: string): Promise<void> {
       ],
     });
 
-    console.log("[pageUpdated] Successfully inserted test table");
+    console.log("[pagePropertiesUpdated] Successfully inserted test table");
   } catch (error) {
-    console.error("[pageUpdated] Error inserting test table:", error);
+    console.error("[pagePropertiesUpdated] Error inserting test table:", error);
     throw error;
   }
 }
 
 /**
- * Handles page update events from Notion
- * @param eventData - The page event data
+ * Handles page properties updated events from Notion
+ * 
+ * Event type: page.properties_updated
+ * Description: Triggered when a page's property is updated.
+ * Is aggregated: Yes
+ * 
+ * @param eventData - The page event data (enriched with entity info)
  * @returns Processing result
  */
-export async function handlePageUpdated(
+export async function handlePagePropertiesUpdated(
   eventData: Record<string, unknown>,
 ): Promise<{
   eventType: string;
   objectType: string;
   processed: boolean;
 }> {
-  const pageId = eventData.id as string | undefined;
-  const pageTitle = eventData.title as string | undefined;
-  const pageUrl = eventData.url as string | undefined;
+  // Extract page ID from entity or eventData (for backward compatibility)
+  const entity = eventData.entity as { id: string; type: string } | undefined;
+  const pageId = entity?.id || (eventData.id as string | undefined);
+  const updatedProperties = (eventData.updated_properties as string[] | undefined) || [];
+  const parent = eventData.parent as { id: string; type: string } | undefined;
 
-  console.log("[pageUpdated] Page updated:", { pageId, pageTitle, pageUrl });
-  
-  // Test handler: Insert a table block when page is updated
+  console.log("[pagePropertiesUpdated] Page properties updated:", {
+    pageId,
+    updatedProperties,
+    parent,
+  });
+
+  // Insert test table when page properties are updated
   if (pageId) {
     try {
       await insertTestTable(pageId);
     } catch (error) {
-      console.error("[pageUpdated] Failed to insert test table:", error);
+      console.error("[pagePropertiesUpdated] Failed to insert test table:", error);
       // Continue processing even if table insertion fails
     }
   }
 
   return {
-    eventType: "page.updated",
+    eventType: "page.properties_updated",
     objectType: "page",
     processed: true,
   };

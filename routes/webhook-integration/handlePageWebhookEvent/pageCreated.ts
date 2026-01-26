@@ -1,6 +1,11 @@
 /**
  * Handles page creation events from Notion
- * @param eventData - The page event data
+ * 
+ * Event type: page.created
+ * Description: Triggered when a new page is created.
+ * Is aggregated: Yes
+ * 
+ * @param eventData - The page event data (enriched with entity info)
  * @returns Processing result
  */
 export async function handlePageCreated(
@@ -10,11 +15,15 @@ export async function handlePageCreated(
   objectType: string;
   processed: boolean;
 }> {
-  const pageId = eventData.id as string | undefined;
-  const pageTitle = eventData.title as string | undefined;
-  const pageUrl = eventData.url as string | undefined;
+  // Extract page ID from entity or eventData (for backward compatibility)
+  const entity = eventData.entity as { id: string; type: string } | undefined;
+  const pageId = entity?.id || (eventData.id as string | undefined);
+  const parent = eventData.parent as { id: string; type: string } | undefined;
 
-  console.log("[pageCreated] Page created:", { pageId, pageTitle, pageUrl });
+  console.log("[pageCreated] Page created:", {
+    pageId,
+    parent,
+  });
   
   // TODO: Add your page creation logic here
   // Example: Save to database, send notification, etc.

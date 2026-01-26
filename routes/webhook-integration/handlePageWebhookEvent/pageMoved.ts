@@ -1,14 +1,14 @@
 /**
- * Handles page deletion events from Notion
+ * Handles page moved events from Notion
  * 
- * Event type: page.deleted
- * Description: Triggered when a page is moved to the trash.
+ * Event type: page.moved
+ * Description: Triggered when a page is moved to another location.
  * Is aggregated: Yes
  * 
  * @param eventData - The page event data (enriched with entity info)
  * @returns Processing result
  */
-export async function handlePageDeleted(
+export async function handlePageMoved(
   eventData: Record<string, unknown>,
 ): Promise<{
   eventType: string;
@@ -20,16 +20,16 @@ export async function handlePageDeleted(
   const pageId = entity?.id || (eventData.id as string | undefined);
   const parent = eventData.parent as { id: string; type: string } | undefined;
 
-  console.log("[pageDeleted] Page deleted:", {
+  console.log("[pageMoved] Page moved:", {
     pageId,
-    parent,
+    newParent: parent,
   });
-  
-  // TODO: Add your page deletion logic here
-  // Example: Remove from database, cleanup resources, etc.
+
+  // TODO: Add your page moved logic here
+  // Example: Update page hierarchy, sync location changes, etc.
 
   return {
-    eventType: "page.deleted",
+    eventType: "page.moved",
     objectType: "page",
     processed: true,
   };

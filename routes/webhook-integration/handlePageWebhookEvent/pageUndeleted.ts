@@ -1,14 +1,14 @@
 /**
- * Handles page deletion events from Notion
+ * Handles page undeleted (restored from trash) events from Notion
  * 
- * Event type: page.deleted
- * Description: Triggered when a page is moved to the trash.
+ * Event type: page.undeleted
+ * Description: Triggered when a page is restored from the trash.
  * Is aggregated: Yes
  * 
  * @param eventData - The page event data (enriched with entity info)
  * @returns Processing result
  */
-export async function handlePageDeleted(
+export async function handlePageUndeleted(
   eventData: Record<string, unknown>,
 ): Promise<{
   eventType: string;
@@ -20,16 +20,16 @@ export async function handlePageDeleted(
   const pageId = entity?.id || (eventData.id as string | undefined);
   const parent = eventData.parent as { id: string; type: string } | undefined;
 
-  console.log("[pageDeleted] Page deleted:", {
+  console.log("[pageUndeleted] Page restored from trash:", {
     pageId,
     parent,
   });
-  
-  // TODO: Add your page deletion logic here
-  // Example: Remove from database, cleanup resources, etc.
+
+  // TODO: Add your page undeleted logic here
+  // Example: Restore page data, re-enable features, etc.
 
   return {
-    eventType: "page.deleted",
+    eventType: "page.undeleted",
     objectType: "page",
     processed: true,
   };

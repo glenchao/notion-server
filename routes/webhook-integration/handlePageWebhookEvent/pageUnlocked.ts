@@ -1,14 +1,14 @@
 /**
- * Handles page deletion events from Notion
+ * Handles page unlocked events from Notion
  * 
- * Event type: page.deleted
- * Description: Triggered when a page is moved to the trash.
- * Is aggregated: Yes
+ * Event type: page.unlocked
+ * Description: Triggered when a page is unlocked.
+ * Is aggregated: No
  * 
  * @param eventData - The page event data (enriched with entity info)
  * @returns Processing result
  */
-export async function handlePageDeleted(
+export async function handlePageUnlocked(
   eventData: Record<string, unknown>,
 ): Promise<{
   eventType: string;
@@ -20,16 +20,16 @@ export async function handlePageDeleted(
   const pageId = entity?.id || (eventData.id as string | undefined);
   const parent = eventData.parent as { id: string; type: string } | undefined;
 
-  console.log("[pageDeleted] Page deleted:", {
+  console.log("[pageUnlocked] Page unlocked:", {
     pageId,
     parent,
   });
-  
-  // TODO: Add your page deletion logic here
-  // Example: Remove from database, cleanup resources, etc.
+
+  // TODO: Add your page unlocked logic here
+  // Example: Re-enable editing features, update UI state, etc.
 
   return {
-    eventType: "page.deleted",
+    eventType: "page.unlocked",
     objectType: "page",
     processed: true,
   };

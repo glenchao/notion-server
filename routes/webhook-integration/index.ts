@@ -97,18 +97,19 @@ async function handleWebhookPayload(payload: unknown): Promise<{
 
   // Extract event information
   const eventType = webhookPayload.type as string | undefined;
-  const objectType = webhookPayload.object as string | undefined;
+  const entity = webhookPayload.entity as { id: string; type: string } | undefined;
   const eventData = webhookPayload.data as Record<string, unknown> | undefined;
 
   console.log("[webhook-integration] Processing webhook event:", {
     eventType,
-    objectType,
+    entity,
     hasData: !!eventData,
   });
 
   // Handle page-specific events
-  if (objectType === "page" || eventType?.startsWith("page.")) {
-    return await handlePageWebhookEvent(eventType, eventData);
+  // Check if entity type is "page" or if event type starts with "page."
+  if (entity?.type === "page" || eventType?.startsWith("page.")) {
+    return await handlePageWebhookEvent(eventType, webhookPayload);
   }
 
   // Handle other object types if needed in the future
