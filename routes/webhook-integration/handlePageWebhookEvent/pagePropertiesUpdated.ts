@@ -72,7 +72,7 @@ async function insertTestTable(pageId: string): Promise<void> {
                     [
                       {
                         type: "text",
-                        text: { content: "https://example.com/alice" },
+                        text: { content: "[Alice's Link](https://example.com/alice)" },
                       },
                     ],
                   ],
@@ -98,7 +98,7 @@ async function insertTestTable(pageId: string): Promise<void> {
                     [
                       {
                         type: "text",
-                        text: { content: "https://example.com/bob" },
+                        text: { content: "[Bob's Link](https://example.com/bob)" },
                       },
                     ],
                   ],
@@ -124,7 +124,7 @@ async function insertTestTable(pageId: string): Promise<void> {
                     [
                       {
                         type: "text",
-                        text: { content: "https://example.com/charlie" },
+                        text: { content: "[Charlie's Link](https://example.com/charlie)" },
                       },
                     ],
                   ],
