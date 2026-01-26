@@ -1,0 +1,225 @@
+---
+description: Guidelines for creating new webhook processors and executors
+alwaysApply: true
+---
+
+# Creating Processors and Executors
+
+This guide explains how to create new webhook processors and executors in the Notion webhook integration system.
+
+## Overview
+
+The system uses a **processor/executor pattern**:
+- **Processors** (`processors/`) define **when** to execute (conditions and filters)
+- **Executors** (`executors/`) define **what** to execute (the actual logic)
+
+## Step-by-Step Guide
+
+### 1. Create the Executor
+
+Create a new file in `executors/` directory with a descriptive name (e.g., `myFeatureExecutor.ts`).
+
+**Template:**
+```typescript
+/**
+ * Executor for [description] - [what it does]
+ * @param payload - The webhook payload containing the page information
+ * @returns True if successful, false otherwise
+ */
+export async function myFeatureExecutor(
+  payload: Record<string, unknown>,
+): Promise<boolean> {
+  try {
+    // Extract necessary data from payload
+    const entity = payload.entity as { id: string; type: string } | undefined;
+    const pageId = entity?.id;
+
+    if (!pageId) {
+      console.error("[myFeatureExecutor] No page ID found in payload");
+      return false;
+    }
+
+    // Your logic here
+    console.log("[myFeatureExecutor] Processing page:", pageId);
+
+    // Return true on success
+    return true;
+  } catch (error) {
+    console.error("[myFeatureExecutor] Error processing:", error);
+    return false;
+  }
+}
+```
+
+**Rules:**
+- Use descriptive function names ending with `Executor`
+- Always use try-catch for error handling
+- Log errors with the executor name as prefix: `[executorName]`
+- Return `true` on success, `false` on failure
+- Extract data from payload at the start
+- Validate required data before processing
+
+### 2. Create the Processor
+
+Create a new file in `processors/` directory with a matching name (e.g., `myFeatureProcessor.ts`).
+
+**Template:**
+```typescript
+import { myFeatureExecutor } from "../executors/myFeatureExecutor";
+import type { IWebhookProcessor } from "../types/webhook";
+import { DATABASE_MY_DATABASE } from "../utilities/Constants";
+import { isEventType, isPageEventFromDatabase } from "../utilities/notionUtils";
+
+/**
+ * Webhook processor for [description]
+ * Executes when [conditions]
+ */
+export const myFeatureProcessor: IWebhookProcessor = {
+  id: "xxxxxxxx-xxxx-xxxx-xxxx-xxxxxxxxxxxx", // GUID - generate a unique one
+  name: "My Feature Processor",
+  isEnabled: true,
+  shouldExecute: (payload: Record<string, unknown>) => {
+    // Define your conditions here
+    return (
+      isEventType(payload, "page.created") &&
+      isPageEventFromDatabase(payload, DATABASE_MY_DATABASE)
+    );
+  },
+  executor: myFeatureExecutor,
+};
+```
+
+**Rules:**
+- **ID must be a GUID** - Use a UUID generator or create a unique GUID
+- Use descriptive names matching the executor
+- `isEnabled` can be `true`, `false`, or a function for dynamic enablement
+- `shouldExecute` should use helper functions from `notionUtils.ts` when possible
+- Keep `shouldExecute` logic concise and readable
+
+### 3. Register the Processor
+
+Add the processor to `processors/index.ts`:
+
+```typescript
+import { myFeatureProcessor } from "./myFeatureProcessor";
+
+export const allProcessors: readonly IWebhookProcessor[] = [
+  // ... existing processors
+  myFeatureProcessor,
+] as const;
+```
+
+**Rules:**
+- Import the processor at the top
+- Add it to the `allProcessors` array
+- Keep processors in a logical order
+
+## Common Patterns
+
+### Pattern 1: Page Created from Specific Database
+
+```typescript
+shouldExecute: (payload: Record<string, unknown>) => {
+  return (
+    isEventType(payload, "page.created") &&
+    isPageEventFromDatabase(payload, DATABASE_MY_DATABASE)
+  );
+}
+```
+
+### Pattern 2: Any Page Event from Database
+
+```typescript
+shouldExecute: (payload: Record<string, unknown>) => {
+  return isPageEventFromDatabase(payload, DATABASE_MY_DATABASE);
+}
+```
+
+### Pattern 3: Specific Event Type Only
+
+```typescript
+shouldExecute: (payload: Record<string, unknown>) => {
+  return isEventType(payload, "page.updated");
+}
+```
+
+### Pattern 4: Custom Logic
+
+```typescript
+shouldExecute: (payload: Record<string, unknown>) => {
+  const eventType = payload.type as string | undefined;
+  const entity = payload.entity as { id: string; type: string } | undefined;
+  
+  // Your custom conditions
+  return eventType === "page.created" && entity?.type === "page";
+}
+```
+
+## Available Helper Functions
+
+Use these utilities from `utilities/notionUtils.ts`:
+
+- `isEventType(payload, expectedType)` - Check for specific event type
+- `isPageEvent(payload)` - Check if it's a page event
+- `isPageEventFromDatabase(payload, databaseId)` - Check if page is from database
+- `extractPageIdFromPayload(payload)` - Extract page ID from payload
+- `normalizeNotionId(id)` - Normalize Notion IDs for comparison
+
+## Database Constants
+
+Add new database IDs to `utilities/Constants.ts`:
+
+```typescript
+/**
+ * My Database description
+ * URL: https://www.notion.so/workspace/database-id
+ */
+export const DATABASE_MY_DATABASE = "database-id-here";
+```
+
+## Best Practices
+
+1. **Naming Convention:**
+   - Processors: `[feature]Processor.ts` → `[feature]Processor`
+   - Executors: `[feature]Executor.ts` → `[feature]Executor`
+   - Use camelCase for names
+
+2. **Error Handling:**
+   - Always wrap executor logic in try-catch
+   - Log errors with descriptive messages
+   - Return `false` on any error
+
+3. **Logging:**
+   - Use consistent log prefixes: `[executorName]`
+   - Log important operations (start, success, errors)
+   - Include relevant IDs in logs
+
+4. **Code Organization:**
+   - Keep executors focused on a single responsibility
+   - Extract complex logic to utility functions
+   - Use helper functions from `notionUtils.ts`
+
+5. **Testing:**
+   - Test with actual webhook payloads
+   - Verify `shouldExecute` conditions work correctly
+   - Ensure error handling works properly
+
+## Examples
+
+See existing implementations:
+- `processors/insertTestTableProcessor.ts` + `executors/insertTestTable.ts`
+- `processors/vancouverHouse2Processor.ts` + `executors/vancouverHouse2Executor.ts`
+- `processors/smallBusinessAcquisitionProcessor.ts` + `executors/smallBusinessAcquisitionExecutor.ts`
+
+## Checklist
+
+When creating a new processor/executor:
+
+- [ ] Created executor file in `executors/` with proper error handling
+- [ ] Created processor file in `processors/` with GUID ID
+- [ ] Added database constant to `Constants.ts` (if needed)
+- [ ] Registered processor in `processors/index.ts`
+- [ ] Used helper functions from `notionUtils.ts` where appropriate
+- [ ] Added descriptive comments and documentation
+- [ ] Tested with actual webhook payloads
+- [ ] Verified logging is consistent and helpful
