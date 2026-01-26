@@ -5,6 +5,7 @@ import { handleLiteWebhook } from "./routes/webhook-lite";
 const port = Bun.env.PORT || 3000;
 const webhookSecret = Bun.env.NOTION_WEBHOOK_SECRET;
 const liteWebhookApiKey = Bun.env.LITE_WEBHOOK_API_KEY;
+const notionApiKey = Bun.env.NOTION_API_KEY;
 
 if (!webhookSecret) {
   console.warn(
@@ -15,6 +16,12 @@ if (!webhookSecret) {
 if (!liteWebhookApiKey) {
   console.warn(
     "Warning: LITE_WEBHOOK_API_KEY is not set. Lite webhook validation will fail.",
+  );
+}
+
+if (!notionApiKey) {
+  console.warn(
+    "Warning: NOTION_API_KEY is not set. Notion API operations will fail.",
   );
 }
 
