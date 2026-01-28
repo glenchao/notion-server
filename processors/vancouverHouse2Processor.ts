@@ -2,6 +2,7 @@ import { vancouverHouse2Executor } from "../executors/vancouverHouse2Executor";
 import type { IWebhookProcessor } from "../types/webhook";
 import { DATABASE_VANCOUVER_HOUSE_2 } from "../utilities/Constants";
 import {
+  isEventType,
   isPageEventFromDatabase,
   isUserTriggeredEvent,
 } from "../utilities/notionUtils";
@@ -17,6 +18,7 @@ export const vancouverHouse2Processor: IWebhookProcessor = {
   shouldExecute: (payload: Record<string, unknown>) => {
     return (
       isUserTriggeredEvent(payload) &&
+      isEventType(payload, ["page.created"]) &&
       isPageEventFromDatabase(payload, DATABASE_VANCOUVER_HOUSE_2)
     );
   },
