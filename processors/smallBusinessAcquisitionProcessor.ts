@@ -13,7 +13,7 @@ export const smallBusinessAcquisitionProcessor: IWebhookProcessor = {
   isEnabled: true,
   shouldExecute: (payload: Record<string, unknown>) => {
     return (
-      isEventType(payload, "page.created") &&
+      isEventType(payload, ["page.created"]) &&
       isPageEventFromDatabase(payload, DATABASE_SMALL_BUSINESS_ACQUISITION)
     );
   },

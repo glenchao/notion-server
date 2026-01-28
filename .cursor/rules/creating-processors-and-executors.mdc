@@ -81,7 +81,7 @@ export const myFeatureProcessor: IWebhookProcessor = {
   shouldExecute: (payload: Record<string, unknown>) => {
     // Define your conditions here
     return (
-      isEventType(payload, "page.created") &&
+      isEventType(payload, ["page.created"]) &&
       isPageEventFromDatabase(payload, DATABASE_MY_DATABASE)
     );
   },
@@ -121,7 +121,7 @@ export const allProcessors: readonly IWebhookProcessor[] = [
 ```typescript
 shouldExecute: (payload: Record<string, unknown>) => {
   return (
-    isEventType(payload, "page.created") &&
+    isEventType(payload, ["page.created"]) &&
     isPageEventFromDatabase(payload, DATABASE_MY_DATABASE)
   );
 }
@@ -139,7 +139,26 @@ shouldExecute: (payload: Record<string, unknown>) => {
 
 ```typescript
 shouldExecute: (payload: Record<string, unknown>) => {
-  return isEventType(payload, "page.updated");
+  return isEventType(payload, ["page.updated"]);
+}
+```
+
+### Pattern 3b: Multiple Event Types
+
+```typescript
+shouldExecute: (payload: Record<string, unknown>) => {
+  return isEventType(payload, ["page.created", "page.updated"]);
+}
+```
+
+### Pattern 3c: User-Triggered Events Only
+
+```typescript
+shouldExecute: (payload: Record<string, unknown>) => {
+  return (
+    isUserTriggeredEvent(payload) &&
+    isPageEventFromDatabase(payload, DATABASE_MY_DATABASE)
+  );
 }
 ```
 
@@ -159,11 +178,21 @@ shouldExecute: (payload: Record<string, unknown>) => {
 
 Use these utilities from `utilities/notionUtils.ts`:
 
-- `isEventType(payload, expectedType)` - Check for specific event type
+- `isEventType(payload, expectedTypes)` - Check if event type matches any in the array
+- `isUserTriggeredEvent(payload)` - Check if event was triggered by a user (not bot/agent)
 - `isPageEvent(payload)` - Check if it's a page event
 - `isPageEventFromDatabase(payload, databaseId)` - Check if page is from database
 - `extractPageIdFromPayload(payload)` - Extract page ID from payload
 - `normalizeNotionId(id)` - Normalize Notion IDs for comparison
+
+Use these utilities from `utilities/notionClient.ts`:
+
+- `getNotionClient()` - Get the Notion API client instance
+- `fetchPage(pageId)` - Fetch a page by ID (returns PageObjectResponse)
+- `fetchDatabaseSchema(databaseId)` - Fetch database schema (returns DatabaseObjectResponse)
+- `getParentDatabaseId(page)` - Extract parent database ID from a page
+- `simplifyDatabaseSchema(database)` - Convert schema to AI-friendly format
+- `simplifyPageProperties(page)` - Convert page properties to AI-friendly format
 
 ## Database Constants
 

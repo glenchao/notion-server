@@ -24,18 +24,18 @@ export function extractPageIdFromPayload(
 }
 
 /**
- * Checks if the webhook payload has a specific event type
+ * Checks if the webhook payload has one of the expected event types
  *
  * @param payload - The webhook payload
- * @param expectedType - The expected event type (e.g., "page.created", "page.updated")
- * @returns True if the payload has the expected event type
+ * @param expectedTypes - Array of expected event types (e.g., ["page.created", "page.updated"])
+ * @returns True if the payload has one of the expected event types
  */
 export function isEventType(
   payload: Record<string, unknown>,
-  expectedType: string,
+  expectedTypes: string[],
 ): boolean {
   const eventType = payload.type as string | undefined;
-  return eventType === expectedType;
+  return eventType !== undefined && expectedTypes.includes(eventType);
 }
 
 /**
@@ -54,6 +54,26 @@ export function isPageEvent(payload: Record<string, unknown>): boolean {
   // Check if the entity is a page
   const entity = payload.entity as { id: string; type: string } | undefined;
   return entity?.type === "page";
+}
+
+/**
+ * Checks if the webhook event was triggered by a user (person), not a bot or agent
+ *
+ * @param payload - The webhook payload
+ * @returns True if at least one author is a person (user-triggered)
+ */
+export function isUserTriggeredEvent(
+  payload: Record<string, unknown>,
+): boolean {
+  const authors = payload.authors as
+    | Array<{ id: string; type: "person" | "bot" | "agent" }>
+    | undefined;
+
+  if (!authors || authors.length === 0) {
+    return false;
+  }
+
+  return authors.some((author) => author.type === "person");
 }
 
 /**

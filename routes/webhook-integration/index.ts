@@ -51,7 +51,7 @@ export async function handleIntegrationWebhook(
     payloadType: typeof payload,
     payloadKeys:
       payload && typeof payload === "object" ? Object.keys(payload) : null,
-    payload: payload,
+    payload: JSON.stringify(payload, null, 2),
   });
 
   // Process the webhook payload

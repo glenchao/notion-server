@@ -13,6 +13,9 @@
     "typescript": "^5"
   },
   "dependencies": {
-    "@notionhq/client": "^5.8.0"
+    "@ai-sdk/google": "^3.0.15",
+    "@notionhq/client": "^5.8.0",
+    "ai": "^6.0.57",
+    "zod": "^4.3.6"
   }
 }
