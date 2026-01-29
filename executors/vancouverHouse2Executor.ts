@@ -2,10 +2,10 @@ import { z } from "zod";
 import { callGemini } from "../modelAccess/gemini";
 import type { NotionWebhookEvent } from "../types/webhook-events";
 import {
-  fetchDatabaseSchema,
+  fetchDatabaseDataSource,
   fetchPage,
   getNotionClient,
-  simplifyDatabaseSchema,
+  simplifyDataSourceSchema,
   simplifyPageProperties,
 } from "../utilities/notionClient";
 import {
@@ -158,15 +158,15 @@ export async function vancouverHouse2Executor(
       return false;
     }
 
-    // Fetch database schema
-    const database = await fetchDatabaseSchema(databaseId);
-    if (!database) {
-      console.error(`${LOG_PREFIX} Failed to fetch database schema`);
+    // Fetch data source schema (contains the database column definitions)
+    const dataSource = await fetchDatabaseDataSource(databaseId);
+    if (!dataSource) {
+      console.error(`${LOG_PREFIX} Failed to fetch data source schema`);
       return false;
     }
 
     // Simplify for AI consumption
-    const schema = simplifyDatabaseSchema(database);
+    const schema = simplifyDataSourceSchema(dataSource);
     const currentValues = simplifyPageProperties(page);
     const propertyAddress = extractAddress(currentValues);
 

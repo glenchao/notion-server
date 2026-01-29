@@ -1,7 +1,8 @@
 import { Client } from "@notionhq/client";
 import type {
-  PageObjectResponse,
   DatabaseObjectResponse,
+  GetDataSourceResponse,
+  PageObjectResponse,
 } from "@notionhq/client/build/src/api-endpoints";
 
 let notionClient: Client | null = null;
@@ -63,25 +64,28 @@ export async function fetchPage(
  * @param databaseId - The Notion database ID
  * @returns The database object (with schema in properties) or null if not found/error
  */
-export async function fetchDatabaseSchema(
+export async function fetchDatabase(
   databaseId: string,
 ): Promise<DatabaseObjectResponse | null> {
   const client = getNotionClient();
   if (!client) {
-    console.error("[fetchDatabaseSchema] Notion client not available");
+    console.error("[fetchDatabase] Notion client not available");
     return null;
   }
 
   try {
-    const response = await client.databases.retrieve({ database_id: databaseId });
+    const response = await client.databases.retrieve({
+      database_id: databaseId,
+    });
     // Type guard: check if it's a full database response
-    if ("properties" in response) {
+    // PartialDatabaseObjectResponse only has 'object' and 'id', while full response has 'title'
+    if ("title" in response) {
       return response as DatabaseObjectResponse;
     }
-    console.warn("[fetchDatabaseSchema] Received partial database response");
+    console.warn("[fetchDatabase] Received partial database response");
     return null;
   } catch (error) {
-    console.error("[fetchDatabaseSchema] Error fetching database:", error);
+    console.error("[fetchDatabase] Error fetching database:", error);
     return null;
   }
 }
@@ -99,16 +103,73 @@ export function getParentDatabaseId(page: PageObjectResponse): string | null {
 }
 
 /**
- * Converts Notion database properties schema to a simplified format for AI consumption
- * @param database - The database object response
+ * Fetches a data source from Notion by ID
+ * Data sources contain the schema/properties of a database
+ * @param dataSourceId - The Notion data source ID
+ * @returns The data source object (with properties) or null if not found/error
+ */
+export async function fetchDataSource(
+  dataSourceId: string,
+): Promise<GetDataSourceResponse | null> {
+  const client = getNotionClient();
+  if (!client) {
+    console.error("[fetchDataSource] Notion client not available");
+    return null;
+  }
+
+  try {
+    const response = await client.dataSources.retrieve({
+      data_source_id: dataSourceId,
+    });
+    return response;
+  } catch (error) {
+    console.error("[fetchDataSource] Error fetching data source:", error);
+    return null;
+  }
+}
+
+/**
+ * Fetches the first data source for a database
+ * This is a convenience function that combines fetchDatabase and fetchDataSource
+ * @param databaseId - The Notion database ID
+ * @returns The data source object (with properties) or null if not found/error
+ */
+export async function fetchDatabaseDataSource(
+  databaseId: string,
+): Promise<GetDataSourceResponse | null> {
+  const database = await fetchDatabase(databaseId);
+  if (!database) {
+    return null;
+  }
+
+  if (!database.data_sources || database.data_sources.length === 0) {
+    console.warn("[fetchDatabaseDataSource] Database has no data sources");
+    return null;
+  }
+
+  // Get the first data source (most databases have only one)
+  const firstDataSource = database.data_sources[0];
+  if (!firstDataSource) {
+    console.warn("[fetchDatabaseDataSource] First data source is undefined");
+    return null;
+  }
+  return fetchDataSource(firstDataSource.id);
+}
+
+/**
+ * Converts Notion data source properties schema to a simplified format for AI consumption
+ * @param dataSource - The data source response (contains properties schema)
  * @returns Simplified schema object describing each property
  */
-export function simplifyDatabaseSchema(
-  database: DatabaseObjectResponse,
+export function simplifyDataSourceSchema(
+  dataSource: GetDataSourceResponse,
 ): Record<string, { type: string; name: string; options?: string[] }> {
-  const schema: Record<string, { type: string; name: string; options?: string[] }> = {};
+  const schema: Record<
+    string,
+    { type: string; name: string; options?: string[] }
+  > = {};
 
-  for (const [key, prop] of Object.entries(database.properties)) {
+  for (const [key, prop] of Object.entries(dataSource.properties)) {
     const entry: { type: string; name: string; options?: string[] } = {
       type: prop.type,
       name: prop.name,
@@ -127,6 +188,26 @@ export function simplifyDatabaseSchema(
   }
 
   return schema;
+}
+
+/**
+ * @deprecated Use simplifyDataSourceSchema instead. DatabaseObjectResponse doesn't have properties.
+ * Converts Notion database properties schema to a simplified format for AI consumption
+ * @param database - The database object response
+ * @returns Simplified schema object describing each property
+ */
+export function simplifyDatabaseSchema(
+  database: DatabaseObjectResponse,
+): Record<string, { type: string; name: string; options?: string[] }> {
+  console.warn(
+    "[simplifyDatabaseSchema] This function is deprecated. Use simplifyDataSourceSchema instead.",
+  );
+  // This will fail at runtime since DatabaseObjectResponse doesn't have properties
+  // Keeping for backward compatibility - callers should migrate to simplifyDataSourceSchema
+  return {} as Record<
+    string,
+    { type: string; name: string; options?: string[] }
+  >;
 }
 
 /**
