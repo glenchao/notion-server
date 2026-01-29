@@ -1,12 +1,12 @@
 import { z } from "zod";
 import { callGemini } from "../modelAccess/gemini";
 import {
-  fetchPage,
   fetchDatabaseSchema,
+  fetchPage,
+  getNotionClient,
   getParentDatabaseId,
   simplifyDatabaseSchema,
   simplifyPageProperties,
-  getNotionClient,
 } from "../utilities/notionClient";
 import { extractPageIdFromPayload } from "../utilities/notionUtils";
 
@@ -19,59 +19,87 @@ import { extractPageIdFromPayload } from "../utilities/notionUtils";
  * This is intentionally flexible to accommodate any database schema
  */
 const PropertyValuesSchema = z.object({
-  filledProperties: z.record(
-    z.string(),
-    z.union([
+  filledProperties: z
+    .record(
       z.string(),
-      z.number(),
-      z.boolean(),
-      z.array(z.string()),
-      z.null(),
-    ]),
-  ).describe("Key-value pairs of property names to their researched values"),
+      z.union([
+        z.string(),
+        z.number(),
+        z.boolean(),
+        z.array(z.string()),
+        z.null(),
+      ]),
+    )
+    .describe("Key-value pairs of property names to their researched values"),
   sources: z.array(z.string()).describe("URLs of sources used for research"),
-  confidence: z.record(z.string(), z.enum(["high", "medium", "low"]))
+  confidence: z
+    .record(z.string(), z.enum(["high", "medium", "low"]))
     .describe("Confidence level for each filled property"),
-  notes: z.string().optional().describe("Additional notes or caveats about the research"),
+  notes: z
+    .string()
+    .optional()
+    .describe("Additional notes or caveats about the research"),
 });
 
 /**
  * Schema for surroundings research
  */
 const SurroundingsSchema = z.object({
-  nearbyParks: z.array(z.object({
-    name: z.string(),
-    walkTimeMinutes: z.number(),
-    distanceMeters: z.number().optional(),
-    features: z.array(z.string()).optional().describe("e.g., playground, sports fields, dog park"),
-  })).describe("Parks within 10 minute walk"),
-  
-  publicTransit: z.array(z.object({
-    name: z.string(),
-    type: z.enum(["bus", "skytrain", "seabus", "westcoastexpress", "other"]),
-    walkTimeMinutes: z.number(),
-    routes: z.array(z.string()).optional().describe("Bus routes or train lines available"),
-  })).describe("Public transit options within 15 minute walk"),
-  
-  transitTimes: z.object({
-    toDowntown: z.object({
-      transitTimeMinutes: z.number(),
-      description: z.string().describe("Brief description of the route"),
-    }),
-    toUBC: z.object({
-      transitTimeMinutes: z.number(),
-      description: z.string(),
-    }),
-    toYVR: z.object({
-      transitTimeMinutes: z.number(),
-      description: z.string(),
-    }),
-    toOakridgePark: z.object({
-      transitTimeMinutes: z.number(),
-      description: z.string(),
-    }),
-  }).describe("Public transit times to key destinations"),
-  
+  nearbyParks: z
+    .array(
+      z.object({
+        name: z.string(),
+        walkTimeMinutes: z.number(),
+        distanceMeters: z.number().optional(),
+        features: z
+          .array(z.string())
+          .optional()
+          .describe("e.g., playground, sports fields, dog park"),
+      }),
+    )
+    .describe("Parks within 10 minute walk"),
+
+  publicTransit: z
+    .array(
+      z.object({
+        name: z.string(),
+        type: z.enum([
+          "bus",
+          "skytrain",
+          "seabus",
+          "westcoastexpress",
+          "other",
+        ]),
+        walkTimeMinutes: z.number(),
+        routes: z
+          .array(z.string())
+          .optional()
+          .describe("Bus routes or train lines available"),
+      }),
+    )
+    .describe("Public transit options within 15 minute walk"),
+
+  transitTimes: z
+    .object({
+      toDowntown: z.object({
+        transitTimeMinutes: z.number(),
+        description: z.string().describe("Brief description of the route"),
+      }),
+      toUBC: z.object({
+        transitTimeMinutes: z.number(),
+        description: z.string(),
+      }),
+      toYVR: z.object({
+        transitTimeMinutes: z.number(),
+        description: z.string(),
+      }),
+      toOakridgePark: z.object({
+        transitTimeMinutes: z.number(),
+        description: z.string(),
+      }),
+    })
+    .describe("Public transit times to key destinations"),
+
   sources: z.array(z.string()).describe("URLs of sources used for research"),
 });
 
@@ -88,7 +116,7 @@ type Surroundings = z.infer<typeof SurroundingsSchema>;
  * - Uses Gemini to research and fill missing property values
  * - Uses Gemini to research surroundings (parks, transit, distances)
  * - Writes results back to Notion
- * 
+ *
  * @param payload - The webhook payload containing the page information
  * @returns True if successful, false otherwise
  */
@@ -111,6 +139,10 @@ export async function vancouverHouse2Executor(
     const page = await fetchPage(pageId);
     if (!page) {
       console.error(`${LOG_PREFIX} Failed to fetch page`);
+      console.log(
+        `${LOG_PREFIX} Full payload:`,
+        JSON.stringify(payload, null, 2),
+      );
       return false;
     }
 
@@ -133,12 +165,20 @@ export async function vancouverHouse2Executor(
     const currentValues = simplifyPageProperties(page);
     const propertyAddress = extractAddress(currentValues);
 
-    console.log(`${LOG_PREFIX} Database schema:`, JSON.stringify(schema, null, 2));
-    console.log(`${LOG_PREFIX} Current values:`, JSON.stringify(currentValues, null, 2));
+    console.log(
+      `${LOG_PREFIX} Database schema:`,
+      JSON.stringify(schema, null, 2),
+    );
+    console.log(
+      `${LOG_PREFIX} Current values:`,
+      JSON.stringify(currentValues, null, 2),
+    );
     console.log(`${LOG_PREFIX} Property address:`, propertyAddress);
 
     if (!propertyAddress) {
-      console.warn(`${LOG_PREFIX} No address found in page properties, skipping research`);
+      console.warn(
+        `${LOG_PREFIX} No address found in page properties, skipping research`,
+      );
       return true; // Not an error, just nothing to research
     }
 
@@ -153,18 +193,32 @@ export async function vancouverHouse2Executor(
     const propertyResult =
       propertySettled.status === "fulfilled" ? propertySettled.value : null;
     if (propertySettled.status === "rejected") {
-      console.error(`${LOG_PREFIX} Property research failed:`, propertySettled.reason);
+      console.error(
+        `${LOG_PREFIX} Property research failed:`,
+        propertySettled.reason,
+      );
     } else {
-      console.log(`${LOG_PREFIX} Property research result:`, JSON.stringify(propertyResult, null, 2));
+      console.log(
+        `${LOG_PREFIX} Property research result:`,
+        JSON.stringify(propertyResult, null, 2),
+      );
     }
 
     // Handle surroundings research result
     const surroundingsResult =
-      surroundingsSettled.status === "fulfilled" ? surroundingsSettled.value : null;
+      surroundingsSettled.status === "fulfilled"
+        ? surroundingsSettled.value
+        : null;
     if (surroundingsSettled.status === "rejected") {
-      console.error(`${LOG_PREFIX} Surroundings research failed:`, surroundingsSettled.reason);
+      console.error(
+        `${LOG_PREFIX} Surroundings research failed:`,
+        surroundingsSettled.reason,
+      );
     } else {
-      console.log(`${LOG_PREFIX} Surroundings research result:`, JSON.stringify(surroundingsResult, null, 2));
+      console.log(
+        `${LOG_PREFIX} Surroundings research result:`,
+        JSON.stringify(surroundingsResult, null, 2),
+      );
     }
 
     // Write results back to Notion
@@ -193,8 +247,14 @@ export async function vancouverHouse2Executor(
  * Looks for common property name patterns
  */
 function extractAddress(properties: Record<string, unknown>): string | null {
-  const addressKeys = ["Address", "address", "Property Address", "Location", "location"];
-  
+  const addressKeys = [
+    "Address",
+    "address",
+    "Property Address",
+    "Location",
+    "location",
+  ];
+
   for (const key of addressKeys) {
     const value = properties[key];
     if (typeof value === "string" && value.trim().length > 0) {
@@ -203,7 +263,11 @@ function extractAddress(properties: Record<string, unknown>): string | null {
   }
 
   // Also check for title property which might contain the address
-  const title = properties["Name"] || properties["name"] || properties["Title"] || properties["title"];
+  const title =
+    properties["Name"] ||
+    properties["name"] ||
+    properties["Title"] ||
+    properties["title"];
   if (typeof title === "string" && title.trim().length > 0) {
     return title.trim();
   }
@@ -241,7 +305,12 @@ async function researchPropertyValues(
   console.log(`${LOG_PREFIX} Missing properties:`, missingProperties);
 
   // Build the prompt
-  const prompt = buildPropertyResearchPrompt(schema, currentValues, address, missingProperties);
+  const prompt = buildPropertyResearchPrompt(
+    schema,
+    currentValues,
+    address,
+    missingProperties,
+  );
 
   try {
     const result = await callGemini({
@@ -268,7 +337,9 @@ async function researchPropertyValues(
 /**
  * Research surroundings using Gemini
  */
-async function researchSurroundings(address: string): Promise<Surroundings | null> {
+async function researchSurroundings(
+  address: string,
+): Promise<Surroundings | null> {
   const LOG_PREFIX = "[researchSurroundings]";
 
   const prompt = buildSurroundingsResearchPrompt(address);
@@ -386,7 +457,7 @@ async function updatePageProperties(
 ): Promise<void> {
   const LOG_PREFIX = "[updatePageProperties]";
   const client = getNotionClient();
-  
+
   if (!client) {
     console.error(`${LOG_PREFIX} Notion client not available`);
     return;
@@ -445,7 +516,9 @@ async function updatePageProperties(
       case "last_edited_by":
         break;
       default:
-        console.log(`${LOG_PREFIX} Skipping unsupported property type: ${propSchema.type}`);
+        console.log(
+          `${LOG_PREFIX} Skipping unsupported property type: ${propSchema.type}`,
+        );
     }
   }
 
@@ -458,9 +531,13 @@ async function updatePageProperties(
     await client.pages.update({
       page_id: pageId,
       // Cast to expected type - we've already validated the property types above
-      properties: properties as Parameters<typeof client.pages.update>[0]["properties"],
+      properties: properties as Parameters<
+        typeof client.pages.update
+      >[0]["properties"],
     });
-    console.log(`${LOG_PREFIX} Updated ${Object.keys(properties).length} properties`);
+    console.log(
+      `${LOG_PREFIX} Updated ${Object.keys(properties).length} properties`,
+    );
   } catch (error) {
     console.error(`${LOG_PREFIX} Error updating page:`, error);
   }
@@ -482,13 +559,17 @@ async function appendSurroundingsTable(
   }
 
   try {
-    const blocks: Parameters<typeof client.blocks.children.append>[0]["children"] = [];
+    const blocks: Parameters<
+      typeof client.blocks.children.append
+    >[0]["children"] = [];
 
     // Header for surroundings section
     blocks.push({
       type: "heading_2",
       heading_2: {
-        rich_text: [{ type: "text", text: { content: "📍 Location & Surroundings" } }],
+        rich_text: [
+          { type: "text", text: { content: "📍 Location & Surroundings" } },
+        ],
       },
     });
 
@@ -497,7 +578,12 @@ async function appendSurroundingsTable(
       blocks.push({
         type: "heading_3",
         heading_3: {
-          rich_text: [{ type: "text", text: { content: "🌳 Nearby Parks (10 min walk)" } }],
+          rich_text: [
+            {
+              type: "text",
+              text: { content: "🌳 Nearby Parks (10 min walk)" },
+            },
+          ],
         },
       });
 
@@ -523,8 +609,18 @@ async function appendSurroundingsTable(
               table_row: {
                 cells: [
                   [{ type: "text" as const, text: { content: park.name } }],
-                  [{ type: "text" as const, text: { content: `${park.walkTimeMinutes} min` } }],
-                  [{ type: "text" as const, text: { content: park.features?.join(", ") || "-" } }],
+                  [
+                    {
+                      type: "text" as const,
+                      text: { content: `${park.walkTimeMinutes} min` },
+                    },
+                  ],
+                  [
+                    {
+                      type: "text" as const,
+                      text: { content: park.features?.join(", ") || "-" },
+                    },
+                  ],
                 ],
               },
             })),
@@ -538,7 +634,12 @@ async function appendSurroundingsTable(
       blocks.push({
         type: "heading_3",
         heading_3: {
-          rich_text: [{ type: "text", text: { content: "🚌 Public Transit (15 min walk)" } }],
+          rich_text: [
+            {
+              type: "text",
+              text: { content: "🚌 Public Transit (15 min walk)" },
+            },
+          ],
         },
       });
 
@@ -566,8 +667,18 @@ async function appendSurroundingsTable(
                 cells: [
                   [{ type: "text" as const, text: { content: transit.name } }],
                   [{ type: "text" as const, text: { content: transit.type } }],
-                  [{ type: "text" as const, text: { content: `${transit.walkTimeMinutes} min` } }],
-                  [{ type: "text" as const, text: { content: transit.routes?.join(", ") || "-" } }],
+                  [
+                    {
+                      type: "text" as const,
+                      text: { content: `${transit.walkTimeMinutes} min` },
+                    },
+                  ],
+                  [
+                    {
+                      type: "text" as const,
+                      text: { content: transit.routes?.join(", ") || "-" },
+                    },
+                  ],
                 ],
               },
             })),
@@ -580,7 +691,12 @@ async function appendSurroundingsTable(
     blocks.push({
       type: "heading_3",
       heading_3: {
-        rich_text: [{ type: "text", text: { content: "🚇 Transit Times to Key Destinations" } }],
+        rich_text: [
+          {
+            type: "text",
+            text: { content: "🚇 Transit Times to Key Destinations" },
+          },
+        ],
       },
     });
 
@@ -606,8 +722,22 @@ async function appendSurroundingsTable(
             table_row: {
               cells: [
                 [{ type: "text", text: { content: "Downtown Vancouver" } }],
-                [{ type: "text", text: { content: `${surroundings.transitTimes.toDowntown.transitTimeMinutes} min` } }],
-                [{ type: "text", text: { content: surroundings.transitTimes.toDowntown.description } }],
+                [
+                  {
+                    type: "text",
+                    text: {
+                      content: `${surroundings.transitTimes.toDowntown.transitTimeMinutes} min`,
+                    },
+                  },
+                ],
+                [
+                  {
+                    type: "text",
+                    text: {
+                      content: surroundings.transitTimes.toDowntown.description,
+                    },
+                  },
+                ],
               ],
             },
           },
@@ -616,8 +746,22 @@ async function appendSurroundingsTable(
             table_row: {
               cells: [
                 [{ type: "text", text: { content: "UBC" } }],
-                [{ type: "text", text: { content: `${surroundings.transitTimes.toUBC.transitTimeMinutes} min` } }],
-                [{ type: "text", text: { content: surroundings.transitTimes.toUBC.description } }],
+                [
+                  {
+                    type: "text",
+                    text: {
+                      content: `${surroundings.transitTimes.toUBC.transitTimeMinutes} min`,
+                    },
+                  },
+                ],
+                [
+                  {
+                    type: "text",
+                    text: {
+                      content: surroundings.transitTimes.toUBC.description,
+                    },
+                  },
+                ],
               ],
             },
           },
@@ -626,8 +770,22 @@ async function appendSurroundingsTable(
             table_row: {
               cells: [
                 [{ type: "text", text: { content: "YVR Airport" } }],
-                [{ type: "text", text: { content: `${surroundings.transitTimes.toYVR.transitTimeMinutes} min` } }],
-                [{ type: "text", text: { content: surroundings.transitTimes.toYVR.description } }],
+                [
+                  {
+                    type: "text",
+                    text: {
+                      content: `${surroundings.transitTimes.toYVR.transitTimeMinutes} min`,
+                    },
+                  },
+                ],
+                [
+                  {
+                    type: "text",
+                    text: {
+                      content: surroundings.transitTimes.toYVR.description,
+                    },
+                  },
+                ],
               ],
             },
           },
@@ -636,8 +794,23 @@ async function appendSurroundingsTable(
             table_row: {
               cells: [
                 [{ type: "text", text: { content: "Oakridge Park" } }],
-                [{ type: "text", text: { content: `${surroundings.transitTimes.toOakridgePark.transitTimeMinutes} min` } }],
-                [{ type: "text", text: { content: surroundings.transitTimes.toOakridgePark.description } }],
+                [
+                  {
+                    type: "text",
+                    text: {
+                      content: `${surroundings.transitTimes.toOakridgePark.transitTimeMinutes} min`,
+                    },
+                  },
+                ],
+                [
+                  {
+                    type: "text",
+                    text: {
+                      content:
+                        surroundings.transitTimes.toOakridgePark.description,
+                    },
+                  },
+                ],
               ],
             },
           },
@@ -655,7 +828,10 @@ async function appendSurroundingsTable(
             ...surroundings.sources.slice(0, 5).map((source, i) => ({
               type: "text" as const,
               text: {
-                content: i === surroundings.sources.length - 1 || i === 4 ? source : `${source}, `,
+                content:
+                  i === surroundings.sources.length - 1 || i === 4
+                    ? source
+                    : `${source}, `,
                 link: { url: source },
               },
             })),
