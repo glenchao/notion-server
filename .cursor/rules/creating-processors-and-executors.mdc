@@ -21,26 +21,30 @@ Create a new file in `executors/` directory with a descriptive name (e.g., `myFe
 
 **Template:**
 ```typescript
+import type { NotionWebhookEvent } from "../types/webhook-events";
+import { extractPageIdFromPayload } from "../utilities/notionUtils";
+
 /**
  * Executor for [description] - [what it does]
- * @param payload - The webhook payload containing the page information
+ * @param payload - The typed webhook payload containing the page information
  * @returns True if successful, false otherwise
  */
 export async function myFeatureExecutor(
-  payload: Record<string, unknown>,
+  payload: NotionWebhookEvent,
 ): Promise<boolean> {
   try {
-    // Extract necessary data from payload
-    const entity = payload.entity as { id: string; type: string } | undefined;
-    const pageId = entity?.id;
+    // Extract page ID using typed utility function
+    const pageId = extractPageIdFromPayload(payload);
 
     if (!pageId) {
       console.error("[myFeatureExecutor] No page ID found in payload");
       return false;
     }
 
-    // Your logic here
+    // Access typed payload properties directly
     console.log("[myFeatureExecutor] Processing page:", pageId);
+    console.log("[myFeatureExecutor] Event type:", payload.type);
+    console.log("[myFeatureExecutor] Authors:", payload.authors);
 
     // Return true on success
     return true;
@@ -53,10 +57,11 @@ export async function myFeatureExecutor(
 
 **Rules:**
 - Use descriptive function names ending with `Executor`
+- **Use `NotionWebhookEvent` type** for the payload parameter (import from `../types/webhook-events`)
 - Always use try-catch for error handling
 - Log errors with the executor name as prefix: `[executorName]`
 - Return `true` on success, `false` on failure
-- Extract data from payload at the start
+- Use `extractPageIdFromPayload()` to get the page ID
 - Validate required data before processing
 
 ### 2. Create the Processor
@@ -78,8 +83,9 @@ export const myFeatureProcessor: IWebhookProcessor = {
   id: "xxxxxxxx-xxxx-xxxx-xxxx-xxxxxxxxxxxx", // GUID - generate a unique one
   name: "My Feature Processor",
   isEnabled: true,
-  shouldExecute: (payload: Record<string, unknown>) => {
+  shouldExecute: (payload) => {
     // Define your conditions here
+    // payload is typed as NotionWebhookEvent automatically
     return (
       isEventType(payload, ["page.created"]) &&
       isPageEventFromDatabase(payload, DATABASE_MY_DATABASE)
@@ -94,6 +100,7 @@ export const myFeatureProcessor: IWebhookProcessor = {
 - Use descriptive names matching the executor
 - `isEnabled` can be `true`, `false`, or a function for dynamic enablement
 - `shouldExecute` should use helper functions from `notionUtils.ts` when possible
+- **Do not explicitly type the `payload` parameter** - let TypeScript infer it from `IWebhookProcessor`
 - Keep `shouldExecute` logic concise and readable
 
 ### 3. Register the Processor
@@ -119,7 +126,7 @@ export const allProcessors: readonly IWebhookProcessor[] = [
 ### Pattern 1: Page Created from Specific Database
 
 ```typescript
-shouldExecute: (payload: Record<string, unknown>) => {
+shouldExecute: (payload) => {
   return (
     isEventType(payload, ["page.created"]) &&
     isPageEventFromDatabase(payload, DATABASE_MY_DATABASE)
@@ -130,7 +137,7 @@ shouldExecute: (payload: Record<string, unknown>) => {
 ### Pattern 2: Any Page Event from Database
 
 ```typescript
-shouldExecute: (payload: Record<string, unknown>) => {
+shouldExecute: (payload) => {
   return isPageEventFromDatabase(payload, DATABASE_MY_DATABASE);
 }
 ```
@@ -138,7 +145,7 @@ shouldExecute: (payload: Record<string, unknown>) => {
 ### Pattern 3: Specific Event Type Only
 
 ```typescript
-shouldExecute: (payload: Record<string, unknown>) => {
+shouldExecute: (payload) => {
   return isEventType(payload, ["page.updated"]);
 }
 ```
@@ -146,7 +153,7 @@ shouldExecute: (payload: Record<string, unknown>) => {
 ### Pattern 3b: Multiple Event Types
 
 ```typescript
-shouldExecute: (payload: Record<string, unknown>) => {
+shouldExecute: (payload) => {
   return isEventType(payload, ["page.created", "page.updated"]);
 }
 ```
@@ -154,7 +161,7 @@ shouldExecute: (payload: Record<string, unknown>) => {
 ### Pattern 3c: User-Triggered Events Only
 
 ```typescript
-shouldExecute: (payload: Record<string, unknown>) => {
+shouldExecute: (payload) => {
   return (
     isUserTriggeredEvent(payload) &&
     isPageEventFromDatabase(payload, DATABASE_MY_DATABASE)
@@ -162,15 +169,16 @@ shouldExecute: (payload: Record<string, unknown>) => {
 }
 ```
 
-### Pattern 4: Custom Logic
+### Pattern 4: Custom Logic with Type Narrowing
 
 ```typescript
-shouldExecute: (payload: Record<string, unknown>) => {
-  const eventType = payload.type as string | undefined;
-  const entity = payload.entity as { id: string; type: string } | undefined;
+shouldExecute: (payload) => {
+  // Access typed properties directly
+  const eventType = payload.type;
+  const entityType = payload.entity?.type;
   
   // Your custom conditions
-  return eventType === "page.created" && entity?.type === "page";
+  return eventType === "page.created" && entityType === "page";
 }
 ```
 

@@ -10,7 +10,7 @@ export const glensPlaygroundProcessor: IWebhookProcessor = {
   id: "a1b2c3d4-e5f6-7890-abcd-ef1234567890", // GUID
   name: "Glen's Playground Processor",
   isEnabled: true, // Always enabled
-  shouldExecute: (payload: Record<string, unknown>) => {
+  shouldExecute: (payload) => {
     return isPageEventFromDatabase(payload, DATABASE_GLENS_PLAYGROUND);
   },
   executor: insertTestTable,

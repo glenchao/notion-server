@@ -1,3 +1,4 @@
+import type { NotionWebhookEvent } from "../../types/webhook-events";
 import { getProcessorsToExecute } from "../../utilities/processorLoader";
 import { validateWebhookRequest } from "../../validation/validation";
 import { handleVerificationRequest } from "../../validation/verification";
@@ -94,19 +95,13 @@ async function handleWebhookPayload(payload: unknown): Promise<{
     throw new Error("Invalid payload: expected an object");
   }
 
-  const webhookPayload = payload as Record<string, unknown>;
-
-  // Extract event information
-  const eventType = webhookPayload.type as string | undefined;
-  const entity = webhookPayload.entity as
-    | { id: string; type: string }
-    | undefined;
-  const eventData = webhookPayload.data as Record<string, unknown> | undefined;
+  // Type assertion to NotionWebhookEvent - validation has already been done
+  const webhookPayload = payload as NotionWebhookEvent;
 
   console.log("[webhook-integration] Processing webhook event:", {
-    eventType,
-    entity,
-    hasData: !!eventData,
+    eventType: webhookPayload.type,
+    entity: webhookPayload.entity,
+    hasData: !!webhookPayload.data,
   });
 
   // Get all processors that should be executed
@@ -144,10 +139,9 @@ async function handleWebhookPayload(payload: unknown): Promise<{
     (result) => result.status === "fulfilled" && result.value.success === true,
   ).length;
 
-  const objectType = entity?.type;
   return {
-    eventType,
-    objectType,
+    eventType: webhookPayload.type,
+    objectType: webhookPayload.entity?.type,
     processed: successfulExecutions > 0,
     processorsExecuted: successfulExecutions,
   };

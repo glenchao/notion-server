@@ -15,7 +15,7 @@ export const vancouverHouse2Processor: IWebhookProcessor = {
   id: "b2c3d4e5-f6a7-8901-bcde-f12345678901", // GUID
   name: "Vancouver House 2 Processor",
   isEnabled: true,
-  shouldExecute: (payload: Record<string, unknown>) => {
+  shouldExecute: (payload) => {
     return (
       isUserTriggeredEvent(payload) &&
       isEventType(payload, ["page.created"]) &&

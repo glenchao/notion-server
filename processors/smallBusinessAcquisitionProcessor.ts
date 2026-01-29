@@ -11,7 +11,7 @@ export const smallBusinessAcquisitionProcessor: IWebhookProcessor = {
   id: "c3d4e5f6-a7b8-9012-cdef-123456789012", // GUID
   name: "Small Business Acquisition Processor",
   isEnabled: true,
-  shouldExecute: (payload: Record<string, unknown>) => {
+  shouldExecute: (payload) => {
     return (
       isEventType(payload, ["page.created"]) &&
       isPageEventFromDatabase(payload, DATABASE_SMALL_BUSINESS_ACQUISITION)

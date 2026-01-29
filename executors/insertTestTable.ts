@@ -1,3 +1,4 @@
+import type { NotionWebhookEvent } from "../types/webhook-events";
 import { getNotionClient } from "../utilities/notionClient";
 import { extractPageIdFromPayload } from "../utilities/notionUtils";
 
@@ -7,7 +8,7 @@ import { extractPageIdFromPayload } from "../utilities/notionUtils";
  * @returns True if successful, false otherwise
  */
 export async function insertTestTable(
-  payload: Record<string, unknown>,
+  payload: NotionWebhookEvent,
 ): Promise<boolean> {
   try {
     // Extract page ID from payload

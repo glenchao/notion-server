@@ -1,14 +1,17 @@
 import { z } from "zod";
 import { callGemini } from "../modelAccess/gemini";
+import type { NotionWebhookEvent } from "../types/webhook-events";
 import {
   fetchDatabaseSchema,
   fetchPage,
   getNotionClient,
-  getParentDatabaseId,
   simplifyDatabaseSchema,
   simplifyPageProperties,
 } from "../utilities/notionClient";
-import { extractPageIdFromPayload } from "../utilities/notionUtils";
+import {
+  extractDatabaseIdFromPayload,
+  extractPageIdFromPayload,
+} from "../utilities/notionUtils";
 
 // ============================================================================
 // Zod Schemas for Gemini Structured Outputs
@@ -121,7 +124,7 @@ type Surroundings = z.infer<typeof SurroundingsSchema>;
  * @returns True if successful, false otherwise
  */
 export async function vancouverHouse2Executor(
-  payload: Record<string, unknown>,
+  payload: NotionWebhookEvent,
 ): Promise<boolean> {
   const LOG_PREFIX = "[vancouverHouse2Executor]";
 
@@ -146,8 +149,10 @@ export async function vancouverHouse2Executor(
       return false;
     }
 
-    // Get parent database ID
-    const databaseId = getParentDatabaseId(page);
+    console.log(`${LOG_PREFIX} Page content:`, JSON.stringify(page, null, 2));
+
+    // Get parent database ID from payload
+    const databaseId = extractDatabaseIdFromPayload(payload);
     if (!databaseId) {
       console.error(`${LOG_PREFIX} Page is not in a database`);
       return false;
