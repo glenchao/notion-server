@@ -581,3 +581,61 @@ export async function updatePageProperties(
     return false;
   }
 }
+
+/**
+ * Adds a comment to a Notion page
+ * @param pageId - The Notion page ID to comment on
+ * @param content - The text content of the comment
+ * @param mentionUserIds - Optional array of user IDs to @mention in the comment
+ * @returns True if comment was added successfully, false otherwise
+ */
+export async function addPageComment(
+  pageId: string,
+  content: string,
+  mentionUserIds?: string[],
+): Promise<boolean> {
+  const logger = new ScopedLogger("addPageComment");
+  const client = getNotionClient();
+
+  if (!client) {
+    logger.log("error", "Notion client not available");
+    logger.end();
+    return false;
+  }
+
+  try {
+    // Build rich text array with text and optional mentions
+    type RichTextItem =
+      | { type: "text"; text: { content: string } }
+      | { type: "mention"; mention: { user: { id: string } } };
+
+    const richText: RichTextItem[] = [
+      { type: "text", text: { content } },
+    ];
+
+    // Add mentions if provided
+    if (mentionUserIds && mentionUserIds.length > 0) {
+      richText.push({ type: "text", text: { content: " " } });
+      for (const userId of mentionUserIds) {
+        richText.push({ type: "mention", mention: { user: { id: userId } } });
+        richText.push({ type: "text", text: { content: " " } });
+      }
+    }
+
+    await client.comments.create({
+      parent: { page_id: pageId },
+      rich_text: richText,
+    });
+
+    logger.log("info", "Successfully added comment to page", { pageId });
+    logger.end();
+    return true;
+  } catch (error) {
+    logger.log("error", "Error adding comment", {
+      error: error instanceof Error ? error.message : String(error),
+      pageId,
+    });
+    logger.end();
+    return false;
+  }
+}

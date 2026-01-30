@@ -1,8 +1,9 @@
 import { z } from "zod";
-import { ScopedLogger } from "../logging/SimpleLogger";
+import { getSessionData, ScopedLogger } from "../logging/SimpleLogger";
 import { callGemini } from "../modelAccess/gemini";
 import type { NotionWebhookEvent } from "../types/webhook-events";
 import {
+  addPageComment,
   fetchDatabaseDataSource,
   fetchPage,
   getNotionClient,
@@ -94,7 +95,9 @@ const SurroundingsSchema = z.object({
           .describe("e.g., playground, sports fields, dog park"),
       }),
     )
-    .describe("Parks within 10 minute walk, SORTED by walking time (shortest first)"),
+    .describe(
+      "Parks within 10 minute walk, SORTED by walking time (shortest first)",
+    ),
 
   publicTransit: z
     .array(
@@ -130,10 +133,14 @@ const SurroundingsSchema = z.object({
       toDowntown: z.object({
         transitTimeMinutes: z
           .number()
-          .describe("Exact transit time in minutes from Google Maps Directions"),
+          .describe(
+            "Exact transit time in minutes from Google Maps Directions",
+          ),
         description: z
           .string()
-          .describe("Route description from Google Maps (e.g., 'Bus 99 to Commercial-Broadway, then SkyTrain')"),
+          .describe(
+            "Route description from Google Maps (e.g., 'Bus 99 to Commercial-Broadway, then SkyTrain')",
+          ),
         googleMapsUrl: z
           .string()
           .nullable()
@@ -141,17 +148,23 @@ const SurroundingsSchema = z.object({
           .describe("Google Maps directions URL for verification"),
       }),
       toUBC: z.object({
-        transitTimeMinutes: z.number().describe("Exact transit time from Google Maps"),
+        transitTimeMinutes: z
+          .number()
+          .describe("Exact transit time from Google Maps"),
         description: z.string().describe("Route description from Google Maps"),
         googleMapsUrl: z.string().nullable().optional(),
       }),
       toYVR: z.object({
-        transitTimeMinutes: z.number().describe("Exact transit time from Google Maps"),
+        transitTimeMinutes: z
+          .number()
+          .describe("Exact transit time from Google Maps"),
         description: z.string().describe("Route description from Google Maps"),
         googleMapsUrl: z.string().nullable().optional(),
       }),
       toOakridgePark: z.object({
-        transitTimeMinutes: z.number().describe("Exact transit time from Google Maps"),
+        transitTimeMinutes: z
+          .number()
+          .describe("Exact transit time from Google Maps"),
         description: z.string().describe("Route description from Google Maps"),
         googleMapsUrl: z.string().nullable().optional(),
       }),
@@ -182,6 +195,11 @@ export async function vancouverHouse2Executor(
   payload: NotionWebhookEvent,
 ): Promise<boolean> {
   const logger = new ScopedLogger("vancouverHouse2Executor");
+  const sessionData = getSessionData();
+  const sessionId = sessionData?.sessionId ?? "unknown";
+
+  // Extract page creator from payload authors (first person type)
+  const pageCreatorId = payload.authors.find((a) => a.type === "person")?.id;
 
   try {
     // Extract page ID from payload
@@ -193,6 +211,12 @@ export async function vancouverHouse2Executor(
     }
 
     logger.log("info", "Processing page", { pageId });
+
+    // Add initial comment to indicate processing has started
+    await addPageComment(
+      pageId,
+      `Looking into this... (sessionId: ${sessionId})`,
+    );
 
     // Fetch page content
     const page = await fetchPage(pageId);
@@ -234,6 +258,12 @@ export async function vancouverHouse2Executor(
       logger.log(
         "warn",
         "No address found in page properties, skipping research",
+      );
+      // Notify that we're skipping due to missing address
+      await addPageComment(
+        pageId,
+        `Skipped: No address found in page properties. sessionId: ${sessionId}`,
+        pageCreatorId ? [pageCreatorId] : undefined,
       );
       logger.end();
       return true; // Not an error, just nothing to research
@@ -283,13 +313,30 @@ export async function vancouverHouse2Executor(
       await appendSurroundingsTable(pageId, surroundingsResult);
     }
 
+    // Add completion comment and tag the creator
+    await addPageComment(
+      pageId,
+      `Done processing! sessionId: ${sessionId}`,
+      pageCreatorId ? [pageCreatorId] : undefined,
+    );
+
     logger.log("info", "Successfully processed page");
     logger.end();
     return true;
   } catch (error) {
-    logger.log("error", "Error processing", {
-      error: error instanceof Error ? error.message : String(error),
-    });
+    const errorMessage = error instanceof Error ? error.message : String(error);
+    logger.log("error", "Error processing", { error: errorMessage });
+
+    // Try to add error comment if we have a pageId
+    const pageId = extractPageIdFromPayload(payload);
+    if (pageId) {
+      await addPageComment(
+        pageId,
+        `Error during processing: ${errorMessage}. sessionId: ${sessionId}`,
+        pageCreatorId ? [pageCreatorId] : undefined,
+      );
+    }
+
     logger.end();
     return false;
   }
@@ -303,7 +350,9 @@ export async function vancouverHouse2Executor(
  * Extracts the property address from page properties
  * Looks for common property name patterns
  */
-export function extractAddress(properties: Record<string, unknown>): string | null {
+export function extractAddress(
+  properties: Record<string, unknown>,
+): string | null {
   const addressKeys = [
     "Address",
     "address",
@@ -546,7 +595,7 @@ For EACH destination, perform a Google Maps directions search:
 
 DESTINATIONS TO LOOK UP:
 1. toDowntown: "${address}" to "Waterfront Station, Vancouver"
-2. toUBC: "${address}" to "University of British Columbia, Vancouver"  
+2. toUBC: "${address}" to "University of British Columbia, Vancouver"
 3. toYVR: "${address}" to "Vancouver International Airport (YVR)"
 4. toOakridgePark: "${address}" to "Oakridge Park, Vancouver" (41st Ave and Cambie St)
 
