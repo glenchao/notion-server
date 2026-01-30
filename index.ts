@@ -1,6 +1,6 @@
 import { ScopedLogger, withSession } from "./logging/SimpleLogger";
 import { handleRoot } from "./routes/root";
-import { handleIntegrationWebhook } from "./routes/webhook-integration";
+import { handleIntegrationWebhook } from "./routes/webhook-integration/webhookIntegration";
 import { handleLiteWebhook } from "./routes/webhook-lite";
 
 const logger = new ScopedLogger("startup");

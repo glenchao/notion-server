@@ -1,0 +1,22 @@
+{
+  "api_version": "2025-09-03",
+  "attempt_number": 1,
+  "authors": [
+    { "id": "276a2269-8cb7-4030-864a-0d818fcfc32b", "type": "person" }
+  ],
+  "data": {
+    "parent": {
+      "data_source_id": "2e8dcaad-a6d6-80fe-9f3f-000b80fe21f6",
+      "id": "2e8dcaad-a6d6-8041-a2ff-cae1de5cff16",
+      "type": "database"
+    }
+  },
+  "entity": { "id": "2f8dcaad-a6d6-80f9-87e8-da5fa6a2fdf0", "type": "page" },
+  "id": "80dd9ea1-684d-4148-9f22-2f730909d960",
+  "integration_id": "2efd872b-594c-8095-801c-00374f88c37e",
+  "subscription_id": "2f3d872b-594c-814b-aadb-00995d8c94d7",
+  "timestamp": "2026-01-30T04:27:26.264Z",
+  "type": "page.created",
+  "workspace_id": "8b48a866-0b4e-4fe7-af13-1146901a6841",
+  "workspace_name": "Glen"
+}

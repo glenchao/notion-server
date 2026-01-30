@@ -19,26 +19,28 @@ import {
 // ============================================================================
 
 /**
+ * Schema for a single property value filled by Gemini
+ * Using array of objects instead of record for Gemini compatibility
+ */
+const FilledPropertySchema = z.object({
+  propertyName: z.string().describe("The name of the property being filled"),
+  value: z
+    .union([z.string(), z.number(), z.boolean(), z.array(z.string()), z.null()])
+    .describe("The researched value for this property"),
+  confidence: z
+    .enum(["high", "medium", "low"])
+    .describe("Confidence level for this property value"),
+});
+
+/**
  * Schema for property values to be filled by Gemini
- * This is intentionally flexible to accommodate any database schema
+ * Uses array of objects instead of z.record() for Gemini compatibility
  */
 const PropertyValuesSchema = z.object({
   filledProperties: z
-    .record(
-      z.string(),
-      z.union([
-        z.string(),
-        z.number(),
-        z.boolean(),
-        z.array(z.string()),
-        z.null(),
-      ]),
-    )
-    .describe("Key-value pairs of property names to their researched values"),
+    .array(FilledPropertySchema)
+    .describe("Array of property names with their researched values"),
   sources: z.array(z.string()).describe("URLs of sources used for research"),
-  confidence: z
-    .record(z.string(), z.enum(["high", "medium", "low"]))
-    .describe("Confidence level for each filled property"),
   notes: z
     .string()
     .optional()
@@ -200,7 +202,9 @@ export async function vancouverHouse2Executor(
         reason: String(propertySettled.reason),
       });
     } else {
-      logger.log("info", "Property research result", { result: propertyResult });
+      logger.log("info", "Property research result", {
+        result: propertyResult,
+      });
     }
 
     // Handle surroundings research result
@@ -247,7 +251,7 @@ export async function vancouverHouse2Executor(
  * Extracts the property address from page properties
  * Looks for common property name patterns
  */
-function extractAddress(properties: Record<string, unknown>): string | null {
+export function extractAddress(properties: Record<string, unknown>): string | null {
   const addressKeys = [
     "Address",
     "address",
@@ -279,7 +283,7 @@ function extractAddress(properties: Record<string, unknown>): string | null {
 /**
  * Research and fill missing property values using Gemini
  */
-async function researchPropertyValues(
+export async function researchPropertyValues(
   schema: Record<string, { type: string; name: string; options?: string[] }>,
   currentValues: Record<string, unknown>,
   address: string,
@@ -348,7 +352,7 @@ async function researchPropertyValues(
 /**
  * Research surroundings using Gemini
  */
-async function researchSurroundings(
+export async function researchSurroundings(
   address: string,
 ): Promise<Surroundings | null> {
   const logger = new ScopedLogger("researchSurroundings");
@@ -384,7 +388,7 @@ async function researchSurroundings(
 /**
  * Build the prompt for property research
  */
-function buildPropertyResearchPrompt(
+export function buildPropertyResearchPrompt(
   schema: Record<string, { type: string; name: string; options?: string[] }>,
   currentValues: Record<string, unknown>,
   address: string,
@@ -431,7 +435,7 @@ Return the filled properties in the structured format specified.`;
 /**
  * Build the prompt for surroundings research
  */
-function buildSurroundingsResearchPrompt(address: string): string {
+export function buildSurroundingsResearchPrompt(address: string): string {
   return `You are an expert Vancouver location analyst with access to Google Search and Google Maps.
 
 PROPERTY ADDRESS: ${address}
@@ -482,7 +486,8 @@ async function updatePageProperties(
   // Build the properties update object
   const properties: Record<string, unknown> = {};
 
-  for (const [key, value] of Object.entries(propertyValues.filledProperties)) {
+  for (const filledProp of propertyValues.filledProperties) {
+    const { propertyName: key, value } = filledProp;
     if (value === null) continue;
 
     const propSchema = schema[key];

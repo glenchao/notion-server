@@ -1,4 +1,4 @@
-import { ScopedLogger } from "../../logging/SimpleLogger.ts";
+import { getSessionData, ScopedLogger } from "../../logging/SimpleLogger.ts";
 import type { NotionWebhookEvent } from "../../types/webhook-events";
 import { getProcessorsToExecute } from "../../utilities/processorLoader";
 import { validateWebhookRequest } from "../../validation/validation";
@@ -10,7 +10,8 @@ export async function handleIntegrationWebhook(
 ): Promise<Response> {
   const logger = new ScopedLogger("handleIntegrationWebhook");
 
-  logger.log("info", "Received integration webhook request");
+  const session = getSessionData();
+  logger.log("info", "Received integration webhook request", { session });
 
   // Only handle POST requests
   if (req.method !== "POST") {
@@ -86,7 +87,9 @@ export async function handleIntegrationWebhook(
  * @param payload - The validated webhook payload
  * @returns Processing result
  */
-async function handleWebhookPayload(payload: unknown): Promise<{
+export async function handleWebhookPayload(
+  payload: NotionWebhookEvent,
+): Promise<{
   eventType?: string;
   objectType?: string;
   processed: boolean;
