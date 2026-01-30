@@ -1,3 +1,4 @@
+import { ScopedLogger } from "../logging/SimpleLogger";
 import type { IWebhookProcessor } from "../types/webhook";
 import type { NotionWebhookEvent } from "../types/webhook-events";
 import { allProcessors } from "../processors";
@@ -11,7 +12,9 @@ import { allProcessors } from "../processors";
 export async function getProcessorsToExecute(
   payload: NotionWebhookEvent,
 ): Promise<IWebhookProcessor[]> {
-  console.log("[getProcessorsToExecute] Checking processors:", {
+  const logger = new ScopedLogger("getProcessorsToExecute");
+
+  logger.log("info", "Checking processors", {
     total: allProcessors.length,
   });
 
@@ -23,9 +26,10 @@ export async function getProcessorsToExecute(
         : processor.isEnabled;
 
     if (!enabled) {
-      console.log(
-        `[getProcessorsToExecute] Processor ${processor.name} (${processor.id}) is disabled`,
-      );
+      logger.log("debug", "Processor is disabled", {
+        processorName: processor.name,
+        processorId: processor.id,
+      });
       return false;
     }
 
@@ -36,23 +40,26 @@ export async function getProcessorsToExecute(
         : processor.shouldExecute;
 
     if (!shouldExecute) {
-      console.log(
-        `[getProcessorsToExecute] Processor ${processor.name} (${processor.id}) should not execute`,
-      );
+      logger.log("debug", "Processor should not execute", {
+        processorName: processor.name,
+        processorId: processor.id,
+      });
       return false;
     }
 
-    console.log(
-      `[getProcessorsToExecute] Processor ${processor.name} (${processor.id}) will execute`,
-    );
+    logger.log("info", "Processor will execute", {
+      processorName: processor.name,
+      processorId: processor.id,
+    });
     return true;
   });
 
-  console.log("[getProcessorsToExecute] Final result:", {
+  logger.log("info", "Final result", {
     total: allProcessors.length,
     toExecute: processorsToExecute.length,
     processorNames: processorsToExecute.map((p) => p.name),
   });
 
+  logger.end();
   return processorsToExecute;
 }

@@ -1,3 +1,4 @@
+import { ScopedLogger } from "../logging/SimpleLogger";
 import {
   HEADER_NOTION_SIGNATURE,
   HEADER_AUTHORIZATION,
@@ -17,7 +18,9 @@ export async function validateWebhookSignature(
   signature: string,
   secret: string,
 ): Promise<boolean> {
-  console.log("[validation] Starting webhook signature validation", {
+  const logger = new ScopedLogger("validateWebhookSignature");
+
+  logger.log("info", "Starting webhook signature validation", {
     bodyLength: body.length,
     signatureLength: signature.length,
     hasSecret: !!secret,
@@ -25,12 +28,14 @@ export async function validateWebhookSignature(
   });
 
   if (!secret) {
-    console.error("[validation] Webhook secret is missing");
+    logger.log("error", "Webhook secret is missing");
+    logger.end();
     return false;
   }
 
   if (!signature) {
-    console.error("[validation] Signature is missing");
+    logger.log("error", "Signature is missing");
+    logger.end();
     return false;
   }
 
@@ -38,14 +43,14 @@ export async function validateWebhookSignature(
   let signatureHash: string;
   if (signature.startsWith("sha256=")) {
     signatureHash = signature.substring(7);
-    console.log("[validation] Extracted hash from sha256= prefix", {
+    logger.log("debug", "Extracted hash from sha256= prefix", {
       originalSignature: signature.substring(0, 20) + "...",
       hashLength: signatureHash.length,
     });
   } else {
     // Fallback: assume the signature is already just the hash
     signatureHash = signature;
-    console.log("[validation] Using signature as-is (no sha256= prefix)", {
+    logger.log("debug", "Using signature as-is (no sha256= prefix)", {
       signatureLength: signatureHash.length,
     });
   }
@@ -56,7 +61,7 @@ export async function validateWebhookSignature(
     const keyData = encoder.encode(secret);
     const messageData = encoder.encode(body);
 
-    console.log("[validation] Computing HMAC-SHA256 signature", {
+    logger.log("debug", "Computing HMAC-SHA256 signature", {
       keyLength: keyData.length,
       messageLength: messageData.length,
     });
@@ -81,7 +86,7 @@ export async function validateWebhookSignature(
       .map((b) => b.toString(16).padStart(2, "0"))
       .join("");
 
-    console.log("[validation] Computed signature", {
+    logger.log("debug", "Computed signature", {
       computedLength: computedSignature.length,
       providedLength: signatureHash.length,
       computedPrefix: computedSignature.substring(0, 16) + "...",
@@ -90,10 +95,11 @@ export async function validateWebhookSignature(
 
     // Compare with provided signature (timing-safe comparison)
     if (computedSignature.length !== signatureHash.length) {
-      console.error("[validation] Signature length mismatch", {
+      logger.log("error", "Signature length mismatch", {
         computedLength: computedSignature.length,
         providedLength: signatureHash.length,
       });
+      logger.end();
       return false;
     }
 
@@ -104,17 +110,19 @@ export async function validateWebhookSignature(
 
     const isValid = result === 0;
     if (isValid) {
-      console.log("[validation] Signature validation successful");
+      logger.log("info", "Signature validation successful");
     } else {
-      console.error("[validation] Signature validation failed - signatures do not match");
+      logger.log("error", "Signature validation failed - signatures do not match");
     }
 
+    logger.end();
     return isValid;
   } catch (error) {
-    console.error("[validation] Error validating webhook signature:", {
+    logger.log("error", "Error validating webhook signature", {
       error: error instanceof Error ? error.message : String(error),
       stack: error instanceof Error ? error.stack : undefined,
     });
+    logger.end();
     return false;
   }
 }
@@ -132,7 +140,9 @@ export async function validateWebhookRequest(
   | { valid: true; payload: unknown }
   | { valid: false; response: Response }
 > {
-  console.log("[validation] Starting webhook request validation", {
+  const logger = new ScopedLogger("validateWebhookRequest");
+
+  logger.log("info", "Starting webhook request validation", {
     method: request.method,
     url: request.url,
     hasSecret: !!secret,
@@ -140,10 +150,11 @@ export async function validateWebhookRequest(
 
   // Only allow POST requests
   if (request.method !== "POST") {
-    console.warn("[validation] Invalid request method", {
+    logger.log("warn", "Invalid request method", {
       method: request.method,
       expected: "POST",
     });
+    logger.end();
     return {
       valid: false,
       response: new Response("Method not allowed", { status: 405 }),
@@ -153,15 +164,16 @@ export async function validateWebhookRequest(
   // Get the signature from headers (official header name per Notion docs)
   const signature = request.headers.get(HEADER_NOTION_SIGNATURE);
   
-  console.log("[validation] Checking for signature header", {
+  logger.log("debug", "Checking for signature header", {
     hasXNotionSignature: !!signature,
     allHeaders: Object.fromEntries(request.headers.entries()),
   });
 
   if (!signature) {
-    console.error("[validation] Missing signature header", {
+    logger.log("error", "Missing signature header", {
       availableHeaders: Array.from(request.headers.keys()),
     });
+    logger.end();
     return {
       valid: false,
       response: new Response(`Missing ${HEADER_NOTION_SIGNATURE} header`, { status: 401 }),
@@ -170,7 +182,8 @@ export async function validateWebhookRequest(
 
   // Check if secret is configured
   if (!secret) {
-    console.error("[validation] Webhook secret not configured");
+    logger.log("error", "Webhook secret not configured");
+    logger.end();
     return {
       valid: false,
       response: new Response("Webhook secret not configured", { status: 500 }),
@@ -178,19 +191,20 @@ export async function validateWebhookRequest(
   }
 
   // Read the request body
-  console.log("[validation] Reading request body");
+  logger.log("debug", "Reading request body");
   const body = await request.text();
-  console.log("[validation] Request body read", {
+  logger.log("debug", "Request body read", {
     bodyLength: body.length,
     bodyPreview: body.substring(0, 200) + (body.length > 200 ? "..." : ""),
   });
 
   // Validate the webhook signature
-  console.log("[validation] Validating webhook signature");
+  logger.log("info", "Validating webhook signature");
   const isValid = await validateWebhookSignature(body, signature, secret);
 
   if (!isValid) {
-    console.error("[validation] Webhook signature validation failed");
+    logger.log("error", "Webhook signature validation failed");
+    logger.end();
     return {
       valid: false,
       response: new Response("Invalid webhook signature", { status: 401 }),
@@ -198,28 +212,30 @@ export async function validateWebhookRequest(
   }
 
   // Parse the webhook payload
-  console.log("[validation] Parsing webhook payload");
+  logger.log("debug", "Parsing webhook payload");
   let payload;
   try {
     payload = JSON.parse(body);
-    console.log("[validation] Payload parsed successfully", {
+    logger.log("debug", "Payload parsed successfully", {
       payloadType: typeof payload,
       payloadKeys: payload && typeof payload === "object" ? Object.keys(payload) : null,
       hasType: payload && typeof payload === "object" && "type" in payload,
       hasObject: payload && typeof payload === "object" && "object" in payload,
     });
   } catch (error) {
-    console.error("[validation] Failed to parse JSON payload", {
+    logger.log("error", "Failed to parse JSON payload", {
       error: error instanceof Error ? error.message : String(error),
       bodyPreview: body.substring(0, 500),
     });
+    logger.end();
     return {
       valid: false,
       response: new Response("Invalid JSON payload", { status: 400 }),
     };
   }
 
-  console.log("[validation] Webhook request validation successful");
+  logger.log("info", "Webhook request validation successful");
+  logger.end();
   return { valid: true, payload };
 }
 
@@ -236,7 +252,9 @@ export async function validateLiteWebhookRequest(
   | { valid: true; payload: unknown }
   | { valid: false; response: Response }
 > {
-  console.log("[validation] Starting lite webhook request validation", {
+  const logger = new ScopedLogger("validateLiteWebhookRequest");
+
+  logger.log("info", "Starting lite webhook request validation", {
     method: request.method,
     url: request.url,
     hasApiKey: !!apiKey,
@@ -244,10 +262,11 @@ export async function validateLiteWebhookRequest(
 
   // Only allow POST requests
   if (request.method !== "POST") {
-    console.warn("[validation] Invalid request method for lite webhook", {
+    logger.log("warn", "Invalid request method for lite webhook", {
       method: request.method,
       expected: "POST",
     });
+    logger.end();
     return {
       valid: false,
       response: new Response("Method not allowed", { status: 405 }),
@@ -258,7 +277,7 @@ export async function validateLiteWebhookRequest(
   const authHeader = request.headers.get(HEADER_AUTHORIZATION);
   const apiKeyHeader = request.headers.get(HEADER_X_API_KEY);
 
-  console.log("[validation] Checking for API key in headers", {
+  logger.log("debug", "Checking for API key in headers", {
     hasAuthorization: !!authHeader,
     hasXApiKey: !!apiKeyHeader,
     authHeaderPrefix: authHeader?.substring(0, 20) + "...",
@@ -267,22 +286,23 @@ export async function validateLiteWebhookRequest(
   let providedKey: string | null = null;
   if (authHeader?.startsWith(BEARER_PREFIX)) {
     providedKey = authHeader.substring(BEARER_PREFIX.length);
-    console.log("[validation] Extracted API key from Authorization Bearer header", {
+    logger.log("debug", "Extracted API key from Authorization Bearer header", {
       keyLength: providedKey.length,
       keyPrefix: providedKey.substring(0, 10) + "...",
     });
   } else if (apiKeyHeader) {
     providedKey = apiKeyHeader;
-    console.log("[validation] Extracted API key from X-API-Key header", {
+    logger.log("debug", "Extracted API key from X-API-Key header", {
       keyLength: providedKey.length,
       keyPrefix: providedKey.substring(0, 10) + "...",
     });
   }
 
   if (!providedKey) {
-    console.error("[validation] Missing API key in headers", {
+    logger.log("error", "Missing API key in headers", {
       availableHeaders: Array.from(request.headers.keys()),
     });
+    logger.end();
     return {
       valid: false,
       response: new Response(
@@ -294,7 +314,8 @@ export async function validateLiteWebhookRequest(
 
   // Check if API key is configured
   if (!apiKey) {
-    console.error("[validation] API key not configured");
+    logger.log("error", "API key not configured");
+    logger.end();
     return {
       valid: false,
       response: new Response("API key not configured", { status: 500 }),
@@ -302,16 +323,17 @@ export async function validateLiteWebhookRequest(
   }
 
   // Validate the API key (timing-safe comparison)
-  console.log("[validation] Validating API key", {
+  logger.log("debug", "Validating API key", {
     providedKeyLength: providedKey.length,
     expectedKeyLength: apiKey.length,
   });
 
   if (providedKey.length !== apiKey.length) {
-    console.error("[validation] API key length mismatch", {
+    logger.log("error", "API key length mismatch", {
       providedLength: providedKey.length,
       expectedLength: apiKey.length,
     });
+    logger.end();
     return {
       valid: false,
       response: new Response("Invalid API key", { status: 401 }),
@@ -324,40 +346,43 @@ export async function validateLiteWebhookRequest(
   }
 
   if (result !== 0) {
-    console.error("[validation] API key validation failed - keys do not match");
+    logger.log("error", "API key validation failed - keys do not match");
+    logger.end();
     return {
       valid: false,
       response: new Response("Invalid API key", { status: 401 }),
     };
   }
 
-  console.log("[validation] API key validation successful");
+  logger.log("info", "API key validation successful");
 
   // Read and parse the request body
-  console.log("[validation] Reading and parsing request body");
+  logger.log("debug", "Reading and parsing request body");
   let payload;
   try {
     const body = await request.text();
-    console.log("[validation] Request body read", {
+    logger.log("debug", "Request body read", {
       bodyLength: body.length,
       bodyPreview: body.substring(0, 200) + (body.length > 200 ? "..." : ""),
     });
     payload = JSON.parse(body);
-    console.log("[validation] Payload parsed successfully", {
+    logger.log("debug", "Payload parsed successfully", {
       payloadType: typeof payload,
       payloadKeys: payload && typeof payload === "object" ? Object.keys(payload) : null,
     });
   } catch (error) {
-    console.error("[validation] Failed to parse JSON payload", {
+    logger.log("error", "Failed to parse JSON payload", {
       error: error instanceof Error ? error.message : String(error),
       stack: error instanceof Error ? error.stack : undefined,
     });
+    logger.end();
     return {
       valid: false,
       response: new Response("Invalid JSON payload", { status: 400 }),
     };
   }
 
-  console.log("[validation] Lite webhook request validation successful");
+  logger.log("info", "Lite webhook request validation successful");
+  logger.end();
   return { valid: true, payload };
 }

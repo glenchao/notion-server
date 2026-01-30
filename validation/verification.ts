@@ -1,3 +1,5 @@
+import { ScopedLogger } from "../logging/SimpleLogger";
+
 /**
  * Handles webhook verification requests from Notion
  * Verification requests contain a "verification_token" field in the JSON payload
@@ -9,7 +11,9 @@
 export async function handleVerificationRequest(
   req: Request,
 ): Promise<Response | null> {
-  console.log("[verification] Checking for verification request", {
+  const logger = new ScopedLogger("verification");
+
+  logger.log("info", "Checking for verification request", {
     method: req.method,
     url: req.url,
   });
@@ -19,7 +23,7 @@ export async function handleVerificationRequest(
     const clonedReq = req.clone();
     const body = await clonedReq.text();
 
-    console.log("[verification] Reading request body", {
+    logger.log("debug", "Reading request body", {
       bodyLength: body.length,
       bodyPreview: body.substring(0, 200) + (body.length > 200 ? "..." : ""),
     });
@@ -28,20 +32,21 @@ export async function handleVerificationRequest(
     let payload: any;
     try {
       payload = JSON.parse(body);
-      console.log("[verification] Parsed JSON payload", {
+      logger.log("debug", "Parsed JSON payload", {
         payloadKeys: payload && typeof payload === "object" ? Object.keys(payload) : null,
       });
     } catch (parseError) {
-      console.log("[verification] Failed to parse as JSON, checking if plain text token", {
+      logger.log("debug", "Failed to parse as JSON, checking if plain text token", {
         error: parseError instanceof Error ? parseError.message : String(parseError),
       });
       
       // If not JSON, check if the body itself is the token
       if (body.startsWith("secret_")) {
-        console.log("[verification] Received verification token (plain text)", {
+        logger.log("info", "Received verification token (plain text)", {
           tokenLength: body.length,
           tokenPrefix: body.substring(0, 20) + "...",
         });
+        logger.end();
         return new Response(body, {
           status: 200,
           headers: { "Content-Type": "text/plain" },
@@ -49,7 +54,8 @@ export async function handleVerificationRequest(
       }
       
       // Not a verification request and not valid JSON
-      console.log("[verification] Not a verification request - invalid format");
+      logger.log("debug", "Not a verification request - invalid format");
+      logger.end();
       return null;
     }
 
@@ -61,7 +67,7 @@ export async function handleVerificationRequest(
       payload?.token ||
       payload?.secret;
 
-    console.log("[verification] Checking for verification token in payload", {
+    logger.log("debug", "Checking for verification token in payload", {
       hasVerificationToken: !!payload?.verification_token,
       hasChallenge: !!payload?.challenge,
       hasToken: !!payload?.token,
@@ -70,10 +76,11 @@ export async function handleVerificationRequest(
     });
 
     if (token && typeof token === "string" && token.startsWith("secret_")) {
-      console.log("[verification] Received verification token", {
+      logger.log("info", "Received verification token", {
         tokenLength: token.length,
         tokenPrefix: token.substring(0, 20) + "...",
       });
+      logger.end();
       // Echo back the token for verification (as per Notion docs)
       return new Response(token, {
         status: 200,
@@ -81,15 +88,17 @@ export async function handleVerificationRequest(
       });
     }
 
-    console.log("[verification] No valid verification token found in payload");
+    logger.log("debug", "No valid verification token found in payload");
   } catch (error) {
-    console.error("[verification] Error handling verification request", {
+    logger.log("error", "Error handling verification request", {
       error: error instanceof Error ? error.message : String(error),
       stack: error instanceof Error ? error.stack : undefined,
     });
     // Return null instead of error response - let the caller handle it
+    logger.end();
     return null;
   }
 
+  logger.end();
   return null;
 }

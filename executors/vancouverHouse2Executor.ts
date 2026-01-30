@@ -1,4 +1,5 @@
 import { z } from "zod";
+import { ScopedLogger } from "../logging/SimpleLogger";
 import { callGemini } from "../modelAccess/gemini";
 import type { NotionWebhookEvent } from "../types/webhook-events";
 import {
@@ -126,42 +127,43 @@ type Surroundings = z.infer<typeof SurroundingsSchema>;
 export async function vancouverHouse2Executor(
   payload: NotionWebhookEvent,
 ): Promise<boolean> {
-  const LOG_PREFIX = "[vancouverHouse2Executor]";
+  const logger = new ScopedLogger("vancouverHouse2Executor");
 
   try {
     // Extract page ID from payload
     const pageId = extractPageIdFromPayload(payload);
     if (!pageId) {
-      console.error(`${LOG_PREFIX} No page ID found in payload`);
+      logger.log("error", "No page ID found in payload");
+      logger.end();
       return false;
     }
 
-    console.log(`${LOG_PREFIX} Processing page:`, pageId);
+    logger.log("info", "Processing page", { pageId });
 
     // Fetch page content
     const page = await fetchPage(pageId);
     if (!page) {
-      console.error(`${LOG_PREFIX} Failed to fetch page`);
-      console.log(
-        `${LOG_PREFIX} Full payload:`,
-        JSON.stringify(payload, null, 2),
-      );
+      logger.log("error", "Failed to fetch page");
+      logger.log("debug", "Full payload", { payload });
+      logger.end();
       return false;
     }
 
-    console.log(`${LOG_PREFIX} Page content:`, JSON.stringify(page, null, 2));
+    logger.log("debug", "Page content", { page });
 
     // Get parent database ID from payload
     const databaseId = extractDatabaseIdFromPayload(payload);
     if (!databaseId) {
-      console.error(`${LOG_PREFIX} Page is not in a database`);
+      logger.log("error", "Page is not in a database");
+      logger.end();
       return false;
     }
 
     // Fetch data source schema (contains the database column definitions)
     const dataSource = await fetchDatabaseDataSource(databaseId);
     if (!dataSource) {
-      console.error(`${LOG_PREFIX} Failed to fetch data source schema`);
+      logger.log("error", "Failed to fetch data source schema");
+      logger.end();
       return false;
     }
 
@@ -170,25 +172,21 @@ export async function vancouverHouse2Executor(
     const currentValues = simplifyPageProperties(page);
     const propertyAddress = extractAddress(currentValues);
 
-    console.log(
-      `${LOG_PREFIX} Database schema:`,
-      JSON.stringify(schema, null, 2),
-    );
-    console.log(
-      `${LOG_PREFIX} Current values:`,
-      JSON.stringify(currentValues, null, 2),
-    );
-    console.log(`${LOG_PREFIX} Property address:`, propertyAddress);
+    logger.log("debug", "Database schema", { schema });
+    logger.log("debug", "Current values", { currentValues });
+    logger.log("info", "Property address", { propertyAddress });
 
     if (!propertyAddress) {
-      console.warn(
-        `${LOG_PREFIX} No address found in page properties, skipping research`,
+      logger.log(
+        "warn",
+        "No address found in page properties, skipping research",
       );
+      logger.end();
       return true; // Not an error, just nothing to research
     }
 
     // Run both Gemini calls in parallel using allSettled to handle individual failures
-    console.log(`${LOG_PREFIX} Starting parallel Gemini research...`);
+    logger.log("info", "Starting parallel Gemini research...");
     const [propertySettled, surroundingsSettled] = await Promise.allSettled([
       researchPropertyValues(schema, currentValues, propertyAddress),
       researchSurroundings(propertyAddress),
@@ -198,15 +196,11 @@ export async function vancouverHouse2Executor(
     const propertyResult =
       propertySettled.status === "fulfilled" ? propertySettled.value : null;
     if (propertySettled.status === "rejected") {
-      console.error(
-        `${LOG_PREFIX} Property research failed:`,
-        propertySettled.reason,
-      );
+      logger.log("error", "Property research failed", {
+        reason: String(propertySettled.reason),
+      });
     } else {
-      console.log(
-        `${LOG_PREFIX} Property research result:`,
-        JSON.stringify(propertyResult, null, 2),
-      );
+      logger.log("info", "Property research result", { result: propertyResult });
     }
 
     // Handle surroundings research result
@@ -215,15 +209,13 @@ export async function vancouverHouse2Executor(
         ? surroundingsSettled.value
         : null;
     if (surroundingsSettled.status === "rejected") {
-      console.error(
-        `${LOG_PREFIX} Surroundings research failed:`,
-        surroundingsSettled.reason,
-      );
+      logger.log("error", "Surroundings research failed", {
+        reason: String(surroundingsSettled.reason),
+      });
     } else {
-      console.log(
-        `${LOG_PREFIX} Surroundings research result:`,
-        JSON.stringify(surroundingsResult, null, 2),
-      );
+      logger.log("info", "Surroundings research result", {
+        result: surroundingsResult,
+      });
     }
 
     // Write results back to Notion
@@ -235,10 +227,14 @@ export async function vancouverHouse2Executor(
       await appendSurroundingsTable(pageId, surroundingsResult);
     }
 
-    console.log(`${LOG_PREFIX} Successfully processed page`);
+    logger.log("info", "Successfully processed page");
+    logger.end();
     return true;
   } catch (error) {
-    console.error(`${LOG_PREFIX} Error processing:`, error);
+    logger.log("error", "Error processing", {
+      error: error instanceof Error ? error.message : String(error),
+    });
+    logger.end();
     return false;
   }
 }
@@ -288,11 +284,16 @@ async function researchPropertyValues(
   currentValues: Record<string, unknown>,
   address: string,
 ): Promise<PropertyValues | null> {
-  const LOG_PREFIX = "[researchPropertyValues]";
+  const logger = new ScopedLogger("researchPropertyValues");
 
   // Identify missing properties (null, empty string, or empty array)
+  // Skip button properties - they are interactive elements, not data to fill
   const missingProperties: string[] = [];
   for (const [key, value] of Object.entries(currentValues)) {
+    // Skip button properties
+    if (schema[key]?.type === "button") {
+      continue;
+    }
     if (
       value === null ||
       value === "" ||
@@ -303,11 +304,12 @@ async function researchPropertyValues(
   }
 
   if (missingProperties.length === 0) {
-    console.log(`${LOG_PREFIX} No missing properties to fill`);
+    logger.log("info", "No missing properties to fill");
+    logger.end();
     return null;
   }
 
-  console.log(`${LOG_PREFIX} Missing properties:`, missingProperties);
+  logger.log("info", "Missing properties", { missingProperties });
 
   // Build the prompt
   const prompt = buildPropertyResearchPrompt(
@@ -328,13 +330,17 @@ async function researchPropertyValues(
 
     // Consume the stream and get the final result
     const text = await result.text;
-    console.log(`${LOG_PREFIX} Gemini response text:`, text);
+    logger.log("debug", "Gemini response text", { text });
 
     // Get the structured output
     const output = await result.output;
+    logger.end();
     return output as PropertyValues;
   } catch (error) {
-    console.error(`${LOG_PREFIX} Error calling Gemini:`, error);
+    logger.log("error", "Error calling Gemini", {
+      error: error instanceof Error ? error.message : String(error),
+    });
+    logger.end();
     return null;
   }
 }
@@ -345,7 +351,7 @@ async function researchPropertyValues(
 async function researchSurroundings(
   address: string,
 ): Promise<Surroundings | null> {
-  const LOG_PREFIX = "[researchSurroundings]";
+  const logger = new ScopedLogger("researchSurroundings");
 
   const prompt = buildSurroundingsResearchPrompt(address);
 
@@ -360,13 +366,17 @@ async function researchSurroundings(
 
     // Consume the stream and get the final result
     const text = await result.text;
-    console.log(`${LOG_PREFIX} Gemini response text:`, text);
+    logger.log("debug", "Gemini response text", { text });
 
     // Get the structured output
     const output = await result.output;
+    logger.end();
     return output as Surroundings;
   } catch (error) {
-    console.error(`${LOG_PREFIX} Error calling Gemini:`, error);
+    logger.log("error", "Error calling Gemini", {
+      error: error instanceof Error ? error.message : String(error),
+    });
+    logger.end();
     return null;
   }
 }
@@ -460,11 +470,12 @@ async function updatePageProperties(
   propertyValues: PropertyValues,
   schema: Record<string, { type: string; name: string; options?: string[] }>,
 ): Promise<void> {
-  const LOG_PREFIX = "[updatePageProperties]";
+  const logger = new ScopedLogger("updatePageProperties");
   const client = getNotionClient();
 
   if (!client) {
-    console.error(`${LOG_PREFIX} Notion client not available`);
+    logger.log("error", "Notion client not available");
+    logger.end();
     return;
   }
 
@@ -521,14 +532,15 @@ async function updatePageProperties(
       case "last_edited_by":
         break;
       default:
-        console.log(
-          `${LOG_PREFIX} Skipping unsupported property type: ${propSchema.type}`,
-        );
+        logger.log("debug", "Skipping unsupported property type", {
+          propertyType: propSchema.type,
+        });
     }
   }
 
   if (Object.keys(properties).length === 0) {
-    console.log(`${LOG_PREFIX} No properties to update`);
+    logger.log("info", "No properties to update");
+    logger.end();
     return;
   }
 
@@ -540,11 +552,15 @@ async function updatePageProperties(
         typeof client.pages.update
       >[0]["properties"],
     });
-    console.log(
-      `${LOG_PREFIX} Updated ${Object.keys(properties).length} properties`,
-    );
+    logger.log("info", "Updated properties", {
+      count: Object.keys(properties).length,
+    });
+    logger.end();
   } catch (error) {
-    console.error(`${LOG_PREFIX} Error updating page:`, error);
+    logger.log("error", "Error updating page", {
+      error: error instanceof Error ? error.message : String(error),
+    });
+    logger.end();
   }
 }
 
@@ -555,11 +571,12 @@ async function appendSurroundingsTable(
   pageId: string,
   surroundings: Surroundings,
 ): Promise<void> {
-  const LOG_PREFIX = "[appendSurroundingsTable]";
+  const logger = new ScopedLogger("appendSurroundingsTable");
   const client = getNotionClient();
 
   if (!client) {
-    console.error(`${LOG_PREFIX} Notion client not available`);
+    logger.log("error", "Notion client not available");
+    logger.end();
     return;
   }
 
@@ -850,8 +867,12 @@ async function appendSurroundingsTable(
       children: blocks,
     });
 
-    console.log(`${LOG_PREFIX} Appended surroundings tables to page`);
+    logger.log("info", "Appended surroundings tables to page");
+    logger.end();
   } catch (error) {
-    console.error(`${LOG_PREFIX} Error appending blocks:`, error);
+    logger.log("error", "Error appending blocks", {
+      error: error instanceof Error ? error.message : String(error),
+    });
+    logger.end();
   }
 }

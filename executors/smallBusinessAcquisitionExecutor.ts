@@ -1,3 +1,4 @@
+import { ScopedLogger } from "../logging/SimpleLogger";
 import type { NotionWebhookEvent } from "../types/webhook-events";
 import { extractPageIdFromPayload } from "../utilities/notionUtils";
 
@@ -9,31 +10,31 @@ import { extractPageIdFromPayload } from "../utilities/notionUtils";
 export async function smallBusinessAcquisitionExecutor(
   payload: NotionWebhookEvent,
 ): Promise<boolean> {
+  const logger = new ScopedLogger("smallBusinessAcquisitionExecutor");
+
   try {
     const pageId = extractPageIdFromPayload(payload);
 
     if (!pageId) {
-      console.error(
-        "[smallBusinessAcquisitionExecutor] No page ID found in payload",
-      );
+      logger.log("error", "No page ID found in payload");
+      logger.end();
       return false;
     }
 
-    console.log(
-      "[smallBusinessAcquisitionExecutor] New page created in Small Business Acquisition database:",
-      pageId,
+    logger.log(
+      "info",
+      "New page created in Small Business Acquisition database",
+      { pageId },
     );
-    console.log(
-      "[smallBusinessAcquisitionExecutor] Full payload:",
-      JSON.stringify(payload, null, 2),
-    );
+    logger.log("debug", "Full payload", { payload });
 
+    logger.end();
     return true;
   } catch (error) {
-    console.error(
-      "[smallBusinessAcquisitionExecutor] Error processing:",
-      error,
-    );
+    logger.log("error", "Error processing", {
+      error: error instanceof Error ? error.message : String(error),
+    });
+    logger.end();
     return false;
   }
 }

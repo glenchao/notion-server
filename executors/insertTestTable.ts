@@ -1,3 +1,4 @@
+import { ScopedLogger } from "../logging/SimpleLogger";
 import type { NotionWebhookEvent } from "../types/webhook-events";
 import { getNotionClient } from "../utilities/notionClient";
 import { extractPageIdFromPayload } from "../utilities/notionUtils";
@@ -10,26 +11,29 @@ import { extractPageIdFromPayload } from "../utilities/notionUtils";
 export async function insertTestTable(
   payload: NotionWebhookEvent,
 ): Promise<boolean> {
+  const logger = new ScopedLogger("insertTestTable");
+
   try {
     // Extract page ID from payload
     const pageId = extractPageIdFromPayload(payload);
 
     if (!pageId) {
-      console.error(
-        "[insertTestTable] No page ID found in payload",
-      );
+      logger.log("error", "No page ID found in payload");
+      logger.end();
       return false;
     }
 
     const client = getNotionClient();
     if (!client) {
-      console.error(
-        "[insertTestTable] Notion client not available. NOTION_API_KEY may be missing.",
+      logger.log(
+        "error",
+        "Notion client not available. NOTION_API_KEY may be missing.",
       );
+      logger.end();
       return false;
     }
 
-    console.log("[insertTestTable] Inserting test table into page:", pageId);
+    logger.log("info", "Inserting test table into page", { pageId });
 
     await client.blocks.children.append({
       block_id: pageId,
@@ -160,10 +164,14 @@ export async function insertTestTable(
       ],
     });
 
-    console.log("[insertTestTable] Successfully inserted test table");
+    logger.log("info", "Successfully inserted test table");
+    logger.end();
     return true;
   } catch (error) {
-    console.error("[insertTestTable] Error inserting test table:", error);
+    logger.log("error", "Error inserting test table", {
+      error: error instanceof Error ? error.message : String(error),
+    });
+    logger.end();
     return false;
   }
 }
