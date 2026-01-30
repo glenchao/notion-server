@@ -8,6 +8,7 @@ import {
   getNotionClient,
   simplifyDataSourceSchema,
   simplifyPageProperties,
+  updatePageProperties,
 } from "../utilities/notionClient";
 import {
   extractDatabaseIdFromPayload,
@@ -19,13 +20,35 @@ import {
 // ============================================================================
 
 /**
+ * Schema for a Place property value (location with coordinates)
+ */
+const PlaceValueSchema = z.object({
+  lat: z.number().describe("Latitude coordinate"),
+  lon: z.number().describe("Longitude coordinate"),
+  name: z.string().nullable().describe("Name of the place"),
+  address: z.string().nullable().describe("Full address of the place"),
+  google_place_id: z
+    .string()
+    .nullable()
+    .optional()
+    .describe("Google Place ID for the location"),
+});
+
+/**
  * Schema for a single property value filled by Gemini
  * Using array of objects instead of record for Gemini compatibility
  */
 const FilledPropertySchema = z.object({
   propertyName: z.string().describe("The name of the property being filled"),
   value: z
-    .union([z.string(), z.number(), z.boolean(), z.array(z.string()), z.null()])
+    .union([
+      z.string(),
+      z.number(),
+      z.boolean(),
+      z.array(z.string()),
+      z.null(),
+      PlaceValueSchema,
+    ])
     .describe("The researched value for this property"),
   confidence: z
     .enum(["high", "medium", "low"])
@@ -54,21 +77,33 @@ const SurroundingsSchema = z.object({
   nearbyParks: z
     .array(
       z.object({
-        name: z.string(),
-        walkTimeMinutes: z.number(),
-        distanceMeters: z.number().optional(),
+        name: z.string().describe("Official name of the park"),
+        google_place_id: z
+          .string()
+          .nullable()
+          .describe("Google Place ID for verification"),
+        distanceMeters: z
+          .number()
+          .describe("Walking distance in meters from property"),
+        walkTimeMinutes: z
+          .number()
+          .describe("Walking time in minutes (calculate as distance/80)"),
         features: z
           .array(z.string())
           .optional()
           .describe("e.g., playground, sports fields, dog park"),
       }),
     )
-    .describe("Parks within 10 minute walk"),
+    .describe("Parks within 10 minute walk, SORTED by walking time (shortest first)"),
 
   publicTransit: z
     .array(
       z.object({
-        name: z.string(),
+        name: z.string().describe("Official stop/station name"),
+        google_place_id: z
+          .string()
+          .nullable()
+          .describe("Google Place ID for verification"),
         type: z.enum([
           "bus",
           "skytrain",
@@ -76,6 +111,9 @@ const SurroundingsSchema = z.object({
           "westcoastexpress",
           "other",
         ]),
+        distanceMeters: z
+          .number()
+          .describe("Walking distance in meters from property"),
         walkTimeMinutes: z.number(),
         routes: z
           .array(z.string())
@@ -83,25 +121,39 @@ const SurroundingsSchema = z.object({
           .describe("Bus routes or train lines available"),
       }),
     )
-    .describe("Public transit options within 15 minute walk"),
+    .describe(
+      "Public transit options within 15 minute walk, SORTED by walking time (shortest first)",
+    ),
 
   transitTimes: z
     .object({
       toDowntown: z.object({
-        transitTimeMinutes: z.number(),
-        description: z.string().describe("Brief description of the route"),
+        transitTimeMinutes: z
+          .number()
+          .describe("Exact transit time in minutes from Google Maps Directions"),
+        description: z
+          .string()
+          .describe("Route description from Google Maps (e.g., 'Bus 99 to Commercial-Broadway, then SkyTrain')"),
+        googleMapsUrl: z
+          .string()
+          .nullable()
+          .optional()
+          .describe("Google Maps directions URL for verification"),
       }),
       toUBC: z.object({
-        transitTimeMinutes: z.number(),
-        description: z.string(),
+        transitTimeMinutes: z.number().describe("Exact transit time from Google Maps"),
+        description: z.string().describe("Route description from Google Maps"),
+        googleMapsUrl: z.string().nullable().optional(),
       }),
       toYVR: z.object({
-        transitTimeMinutes: z.number(),
-        description: z.string(),
+        transitTimeMinutes: z.number().describe("Exact transit time from Google Maps"),
+        description: z.string().describe("Route description from Google Maps"),
+        googleMapsUrl: z.string().nullable().optional(),
       }),
       toOakridgePark: z.object({
-        transitTimeMinutes: z.number(),
-        description: z.string(),
+        transitTimeMinutes: z.number().describe("Exact transit time from Google Maps"),
+        description: z.string().describe("Route description from Google Maps"),
+        googleMapsUrl: z.string().nullable().optional(),
       }),
     })
     .describe("Public transit times to key destinations"),
@@ -423,11 +475,30 @@ RESEARCH INSTRUCTIONS:
 6. Include confidence levels for each property based on source reliability
 7. List all sources used
 
+PLACE PROPERTY INSTRUCTIONS:
+For properties of type "place", you MUST return a place object with:
+- lat: The latitude coordinate (number)
+- lon: The longitude coordinate (number)
+- name: The name of the place (string or null)
+- address: The full address (string or null)
+- google_place_id: The Google Place ID if available (string or null)
+
+Use Google Maps to get accurate coordinates and the google_place_id for the property address.
+Example place value:
+{
+  "lat": 49.2827,
+  "lon": -123.1207,
+  "name": "Property Name",
+  "address": "123 Main St, Vancouver, BC V6B 1A1",
+  "google_place_id": "ChIJN1t_tDeuEmsRUsoyG83frY4"
+}
+
 IMPORTANT:
 - Be thorough - search multiple sources to verify information
 - If you cannot find reliable information, set the value to null
 - For strata/building information, look for strata council minutes, depreciation reports
 - Check for recent sales history, price changes, days on market
+- For place properties, always use Google Maps to get coordinates and google_place_id
 
 Return the filled properties in the structured format specified.`;
 }
@@ -440,133 +511,64 @@ export function buildSurroundingsResearchPrompt(address: string): string {
 
 PROPERTY ADDRESS: ${address}
 
-YOUR TASK: Research the surroundings of this property and provide detailed information about:
+YOUR TASK: Research the surroundings of this property using Google Maps to find ACCURATE nearby places.
 
-1. NEARBY PARKS (within 10 minute walk):
-   - Find all parks within approximately 800m walking distance
-   - Include park name, walking time, and any notable features (playground, sports fields, dog park, etc.)
+== CRITICAL: USE GOOGLE MAPS NEARBY SEARCH ==
+You MUST use Google Maps to search for nearby places. Do NOT guess or estimate distances.
+For each place found, you MUST provide:
+- The EXACT distance in meters from Google Maps
+- The google_place_id from Google Maps (if available)
+- Walking time calculated as: distanceMeters / 80 (average walking speed is 80m/min)
 
-2. PUBLIC TRANSIT OPTIONS (within 15 minute walk):
-   - Find all bus stops, SkyTrain stations, SeaBus terminals within walking distance
-   - Include the name, type, walking time, and available routes/lines
+== 1. NEARBY PARKS (within 800m / 10 minute walk) ==
+Search for: "parks near ${address}"
+- Use Google Maps to find the CLOSEST parks first
+- Include official park name, exact distance, and any amenities
+- SORT results by walking time (shortest first)
+- Only include parks within 800m walking distance
 
-3. TRANSIT TIMES TO KEY DESTINATIONS (by public transit):
-   - Vancouver Downtown (Waterfront Station as reference)
-   - UBC (University of British Columbia campus)
-   - YVR (Vancouver International Airport)
-   - Oakridge Park (formerly Oakridge Centre/Mall at 41st and Cambie)
+== 2. PUBLIC TRANSIT (within 1200m / 15 minute walk) ==
+Search for: "transit stops near ${address}" and "skytrain stations near ${address}"
+- Find bus stops, SkyTrain stations, SeaBus terminals
+- Include official stop names and route numbers
+- SORT results by walking time (shortest first)
+- Prioritize SkyTrain stations and major bus routes (B-Lines, RapidBus)
 
-RESEARCH INSTRUCTIONS:
-1. Use Google Maps to calculate accurate walking distances and transit times
-2. Use Google Search to verify transit routes and schedules
-3. For transit times, assume typical weekday morning travel (8-9 AM)
-4. Include the transit route description (e.g., "Take 99 B-Line to Broadway-City Hall, transfer to Canada Line")
-5. Be accurate with walking times - 80m ≈ 1 minute walking
+== 3. TRANSIT TIMES TO KEY DESTINATIONS (CRITICAL - USE GOOGLE MAPS DIRECTIONS) ==
+
+You MUST use Google Maps Directions API (transit mode) to get EXACT travel times.
+DO NOT estimate or guess travel times. Look up each route on Google Maps.
+
+For EACH destination, perform a Google Maps directions search:
+- Origin: "${address}"
+- Mode: Transit (public transportation)
+- Departure: Weekday 8:00 AM
+
+DESTINATIONS TO LOOK UP:
+1. toDowntown: "${address}" to "Waterfront Station, Vancouver"
+2. toUBC: "${address}" to "University of British Columbia, Vancouver"  
+3. toYVR: "${address}" to "Vancouver International Airport (YVR)"
+4. toOakridgePark: "${address}" to "Oakridge Park, Vancouver" (41st Ave and Cambie St)
+
+For each route, record:
+- transitTimeMinutes: The EXACT time shown by Google Maps (not estimated)
+- description: The route Google Maps suggests (e.g., "Walk to X station, take Y line to Z")
+- googleMapsUrl: The Google Maps directions URL if available
+
+== DATA QUALITY REQUIREMENTS ==
+1. ALL distances must come from Google Maps - do NOT estimate
+2. ALL transit times must come from Google Maps Directions - do NOT guess
+3. Walking times = distanceMeters / 80 (rounded to nearest minute)
+4. Include google_place_id when available for verification
+5. Sort parks and transit results by walking time (shortest first)
+6. Do not include places you cannot verify on Google Maps
+7. If a park or transit stop cannot be found on Google Maps, do not include it
+
+== VERIFICATION ==
+Before returning any travel time, confirm you looked it up on Google Maps.
+If you cannot look up a travel time on Google Maps, use 0 for the time and note "Unable to verify" in the description.
 
 Return the surroundings information in the structured format specified.`;
-}
-
-/**
- * Update page properties in Notion
- */
-async function updatePageProperties(
-  pageId: string,
-  propertyValues: PropertyValues,
-  schema: Record<string, { type: string; name: string; options?: string[] }>,
-): Promise<void> {
-  const logger = new ScopedLogger("updatePageProperties");
-  const client = getNotionClient();
-
-  if (!client) {
-    logger.log("error", "Notion client not available");
-    logger.end();
-    return;
-  }
-
-  // Build the properties update object
-  const properties: Record<string, unknown> = {};
-
-  for (const filledProp of propertyValues.filledProperties) {
-    const { propertyName: key, value } = filledProp;
-    if (value === null) continue;
-
-    const propSchema = schema[key];
-    if (!propSchema) continue;
-
-    // Convert value based on property type
-    switch (propSchema.type) {
-      case "rich_text":
-        properties[key] = {
-          rich_text: [{ type: "text", text: { content: String(value) } }],
-        };
-        break;
-      case "number":
-        if (typeof value === "number") {
-          properties[key] = { number: value };
-        }
-        break;
-      case "select":
-        if (typeof value === "string") {
-          properties[key] = { select: { name: value } };
-        }
-        break;
-      case "multi_select":
-        if (Array.isArray(value)) {
-          properties[key] = {
-            multi_select: value.map((v) => ({ name: String(v) })),
-          };
-        }
-        break;
-      case "checkbox":
-        if (typeof value === "boolean") {
-          properties[key] = { checkbox: value };
-        }
-        break;
-      case "url":
-        if (typeof value === "string") {
-          properties[key] = { url: value };
-        }
-        break;
-      // Skip read-only types
-      case "title":
-      case "formula":
-      case "rollup":
-      case "created_time":
-      case "created_by":
-      case "last_edited_time":
-      case "last_edited_by":
-        break;
-      default:
-        logger.log("debug", "Skipping unsupported property type", {
-          propertyType: propSchema.type,
-        });
-    }
-  }
-
-  if (Object.keys(properties).length === 0) {
-    logger.log("info", "No properties to update");
-    logger.end();
-    return;
-  }
-
-  try {
-    await client.pages.update({
-      page_id: pageId,
-      // Cast to expected type - we've already validated the property types above
-      properties: properties as Parameters<
-        typeof client.pages.update
-      >[0]["properties"],
-    });
-    logger.log("info", "Updated properties", {
-      count: Object.keys(properties).length,
-    });
-    logger.end();
-  } catch (error) {
-    logger.log("error", "Error updating page", {
-      error: error instanceof Error ? error.message : String(error),
-    });
-    logger.end();
-  }
 }
 
 /**
@@ -617,7 +619,7 @@ async function appendSurroundingsTable(
       blocks.push({
         type: "table",
         table: {
-          table_width: 3,
+          table_width: 4,
           has_column_header: true,
           has_row_header: false,
           children: [
@@ -626,6 +628,7 @@ async function appendSurroundingsTable(
               table_row: {
                 cells: [
                   [{ type: "text", text: { content: "Park Name" } }],
+                  [{ type: "text", text: { content: "Distance" } }],
                   [{ type: "text", text: { content: "Walk Time" } }],
                   [{ type: "text", text: { content: "Features" } }],
                 ],
@@ -636,6 +639,12 @@ async function appendSurroundingsTable(
               table_row: {
                 cells: [
                   [{ type: "text" as const, text: { content: park.name } }],
+                  [
+                    {
+                      type: "text" as const,
+                      text: { content: `${park.distanceMeters}m` },
+                    },
+                  ],
                   [
                     {
                       type: "text" as const,
@@ -673,7 +682,7 @@ async function appendSurroundingsTable(
       blocks.push({
         type: "table",
         table: {
-          table_width: 4,
+          table_width: 5,
           has_column_header: true,
           has_row_header: false,
           children: [
@@ -683,6 +692,7 @@ async function appendSurroundingsTable(
                 cells: [
                   [{ type: "text", text: { content: "Stop/Station" } }],
                   [{ type: "text", text: { content: "Type" } }],
+                  [{ type: "text", text: { content: "Distance" } }],
                   [{ type: "text", text: { content: "Walk Time" } }],
                   [{ type: "text", text: { content: "Routes" } }],
                 ],
@@ -694,6 +704,12 @@ async function appendSurroundingsTable(
                 cells: [
                   [{ type: "text" as const, text: { content: transit.name } }],
                   [{ type: "text" as const, text: { content: transit.type } }],
+                  [
+                    {
+                      type: "text" as const,
+                      text: { content: `${transit.distanceMeters}m` },
+                    },
+                  ],
                   [
                     {
                       type: "text" as const,
@@ -727,10 +743,35 @@ async function appendSurroundingsTable(
       },
     });
 
+    // Helper to create a transit time row with optional Google Maps link
+    const createTransitRow = (
+      destination: string,
+      time: number,
+      description: string,
+      googleMapsUrl?: string | null,
+    ) => ({
+      type: "table_row" as const,
+      table_row: {
+        cells: [
+          [{ type: "text" as const, text: { content: destination } }],
+          [{ type: "text" as const, text: { content: `${time} min` } }],
+          [{ type: "text" as const, text: { content: description } }],
+          [
+            googleMapsUrl
+              ? {
+                  type: "text" as const,
+                  text: { content: "View Route", link: { url: googleMapsUrl } },
+                }
+              : { type: "text" as const, text: { content: "-" } },
+          ],
+        ],
+      },
+    });
+
     blocks.push({
       type: "table",
       table: {
-        table_width: 3,
+        table_width: 4,
         has_column_header: true,
         has_row_header: false,
         children: [
@@ -741,106 +782,34 @@ async function appendSurroundingsTable(
                 [{ type: "text", text: { content: "Destination" } }],
                 [{ type: "text", text: { content: "Transit Time" } }],
                 [{ type: "text", text: { content: "Route" } }],
+                [{ type: "text", text: { content: "Map" } }],
               ],
             },
           },
-          {
-            type: "table_row",
-            table_row: {
-              cells: [
-                [{ type: "text", text: { content: "Downtown Vancouver" } }],
-                [
-                  {
-                    type: "text",
-                    text: {
-                      content: `${surroundings.transitTimes.toDowntown.transitTimeMinutes} min`,
-                    },
-                  },
-                ],
-                [
-                  {
-                    type: "text",
-                    text: {
-                      content: surroundings.transitTimes.toDowntown.description,
-                    },
-                  },
-                ],
-              ],
-            },
-          },
-          {
-            type: "table_row",
-            table_row: {
-              cells: [
-                [{ type: "text", text: { content: "UBC" } }],
-                [
-                  {
-                    type: "text",
-                    text: {
-                      content: `${surroundings.transitTimes.toUBC.transitTimeMinutes} min`,
-                    },
-                  },
-                ],
-                [
-                  {
-                    type: "text",
-                    text: {
-                      content: surroundings.transitTimes.toUBC.description,
-                    },
-                  },
-                ],
-              ],
-            },
-          },
-          {
-            type: "table_row",
-            table_row: {
-              cells: [
-                [{ type: "text", text: { content: "YVR Airport" } }],
-                [
-                  {
-                    type: "text",
-                    text: {
-                      content: `${surroundings.transitTimes.toYVR.transitTimeMinutes} min`,
-                    },
-                  },
-                ],
-                [
-                  {
-                    type: "text",
-                    text: {
-                      content: surroundings.transitTimes.toYVR.description,
-                    },
-                  },
-                ],
-              ],
-            },
-          },
-          {
-            type: "table_row",
-            table_row: {
-              cells: [
-                [{ type: "text", text: { content: "Oakridge Park" } }],
-                [
-                  {
-                    type: "text",
-                    text: {
-                      content: `${surroundings.transitTimes.toOakridgePark.transitTimeMinutes} min`,
-                    },
-                  },
-                ],
-                [
-                  {
-                    type: "text",
-                    text: {
-                      content:
-                        surroundings.transitTimes.toOakridgePark.description,
-                    },
-                  },
-                ],
-              ],
-            },
-          },
+          createTransitRow(
+            "Downtown Vancouver",
+            surroundings.transitTimes.toDowntown.transitTimeMinutes,
+            surroundings.transitTimes.toDowntown.description,
+            surroundings.transitTimes.toDowntown.googleMapsUrl,
+          ),
+          createTransitRow(
+            "UBC",
+            surroundings.transitTimes.toUBC.transitTimeMinutes,
+            surroundings.transitTimes.toUBC.description,
+            surroundings.transitTimes.toUBC.googleMapsUrl,
+          ),
+          createTransitRow(
+            "YVR Airport",
+            surroundings.transitTimes.toYVR.transitTimeMinutes,
+            surroundings.transitTimes.toYVR.description,
+            surroundings.transitTimes.toYVR.googleMapsUrl,
+          ),
+          createTransitRow(
+            "Oakridge Park",
+            surroundings.transitTimes.toOakridgePark.transitTimeMinutes,
+            surroundings.transitTimes.toOakridgePark.description,
+            surroundings.transitTimes.toOakridgePark.googleMapsUrl,
+          ),
         ],
       },
     });

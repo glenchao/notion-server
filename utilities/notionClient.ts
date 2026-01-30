@@ -6,6 +6,39 @@ import type {
 } from "@notionhq/client/build/src/api-endpoints";
 import { ScopedLogger } from "../logging/SimpleLogger";
 
+// ============================================================================
+// Types for Page Property Updates
+// ============================================================================
+
+/**
+ * Represents a place value with coordinates for Notion's place property type
+ */
+export interface PlaceValue {
+  lat: number;
+  lon: number;
+  name?: string | null;
+  address?: string | null;
+  google_place_id?: string | null;
+}
+
+/**
+ * Represents a single property to be updated
+ */
+export interface FilledProperty {
+  propertyName: string;
+  value: string | number | boolean | string[] | PlaceValue | null;
+  confidence?: "high" | "medium" | "low";
+}
+
+/**
+ * Input for updatePageProperties function
+ */
+export interface PropertyUpdateInput {
+  filledProperties: FilledProperty[];
+  sources?: string[];
+  notes?: string;
+}
+
 let notionClient: Client | null = null;
 
 /**
@@ -324,4 +357,227 @@ export function simplifyPageProperties(
   }
 
   return simplified;
+}
+
+/**
+ * Updates page properties in Notion based on filled property values
+ * Handles type conversion for various Notion property types
+ *
+ * @param pageId - The Notion page ID to update
+ * @param propertyValues - Object containing filled properties to update
+ * @param schema - Database schema describing property types
+ * @returns True if update was successful, false otherwise
+ */
+export async function updatePageProperties(
+  pageId: string,
+  propertyValues: PropertyUpdateInput,
+  schema: Record<string, { type: string; name: string; options?: string[] }>,
+): Promise<boolean> {
+  const logger = new ScopedLogger("updatePageProperties");
+  const client = getNotionClient();
+
+  if (!client) {
+    logger.log("error", "Notion client not available");
+    logger.end();
+    return false;
+  }
+
+  logger.log("info", "Processing property updates", {
+    pageId,
+    filledPropertiesCount: propertyValues.filledProperties.length,
+    sources: propertyValues.sources,
+    notes: propertyValues.notes,
+  });
+
+  // Build the properties update object
+  const properties: Record<string, unknown> = {};
+  const skippedProperties: { key: string; reason: string }[] = [];
+
+  for (const filledProp of propertyValues.filledProperties) {
+    const { propertyName: key, value, confidence } = filledProp;
+
+    if (value === null) {
+      skippedProperties.push({ key, reason: "null value" });
+      continue;
+    }
+
+    const propSchema = schema[key];
+    if (!propSchema) {
+      skippedProperties.push({ key, reason: "not in schema" });
+      continue;
+    }
+
+    logger.log("debug", "Processing property", {
+      key,
+      type: propSchema.type,
+      confidence,
+      valueType: typeof value,
+      value: typeof value === "object" ? JSON.stringify(value) : value,
+    });
+
+    // Convert value based on property type
+    switch (propSchema.type) {
+      case "rich_text":
+        properties[key] = {
+          rich_text: [{ type: "text", text: { content: String(value) } }],
+        };
+        logger.log("debug", "Set rich_text property", {
+          key,
+          value: String(value),
+        });
+        break;
+      case "number":
+        if (typeof value === "number") {
+          properties[key] = { number: value };
+          logger.log("debug", "Set number property", { key, value });
+        } else {
+          skippedProperties.push({
+            key,
+            reason: `expected number, got ${typeof value}`,
+          });
+        }
+        break;
+      case "select":
+        if (typeof value === "string") {
+          properties[key] = { select: { name: value } };
+          logger.log("debug", "Set select property", { key, value });
+        } else {
+          skippedProperties.push({
+            key,
+            reason: `expected string, got ${typeof value}`,
+          });
+        }
+        break;
+      case "multi_select":
+        if (Array.isArray(value)) {
+          properties[key] = {
+            multi_select: value.map((v) => ({ name: String(v) })),
+          };
+          logger.log("debug", "Set multi_select property", { key, values: value });
+        } else {
+          skippedProperties.push({
+            key,
+            reason: `expected array, got ${typeof value}`,
+          });
+        }
+        break;
+      case "checkbox":
+        if (typeof value === "boolean") {
+          properties[key] = { checkbox: value };
+          logger.log("debug", "Set checkbox property", { key, value });
+        } else {
+          skippedProperties.push({
+            key,
+            reason: `expected boolean, got ${typeof value}`,
+          });
+        }
+        break;
+      case "url":
+        if (typeof value === "string") {
+          properties[key] = { url: value };
+          logger.log("debug", "Set url property", { key, value });
+        } else {
+          skippedProperties.push({
+            key,
+            reason: `expected string, got ${typeof value}`,
+          });
+        }
+        break;
+      case "place":
+        // Place property requires lat, lon, and optionally name, address, google_place_id
+        if (
+          typeof value === "object" &&
+          value !== null &&
+          "lat" in value &&
+          "lon" in value
+        ) {
+          const placeValue = value as PlaceValue;
+          properties[key] = {
+            place: {
+              lat: placeValue.lat,
+              lon: placeValue.lon,
+              name: placeValue.name ?? null,
+              address: placeValue.address ?? null,
+              google_place_id: placeValue.google_place_id ?? null,
+            },
+          };
+          logger.log("info", "Set place property", {
+            key,
+            lat: placeValue.lat,
+            lon: placeValue.lon,
+            name: placeValue.name,
+            address: placeValue.address,
+            google_place_id: placeValue.google_place_id,
+          });
+        } else {
+          skippedProperties.push({
+            key,
+            reason: "invalid place object: missing lat/lon or not an object",
+          });
+        }
+        break;
+      // Skip read-only types
+      case "title":
+      case "formula":
+      case "rollup":
+      case "created_time":
+      case "created_by":
+      case "last_edited_time":
+      case "last_edited_by":
+        skippedProperties.push({
+          key,
+          reason: `read-only type: ${propSchema.type}`,
+        });
+        break;
+      default:
+        skippedProperties.push({
+          key,
+          reason: `unsupported type: ${propSchema.type}`,
+        });
+        logger.log("debug", "Skipping unsupported property type", {
+          key,
+          propertyType: propSchema.type,
+        });
+    }
+  }
+
+  // Log skipped properties summary
+  if (skippedProperties.length > 0) {
+    logger.log("debug", "Skipped properties", { skippedProperties });
+  }
+
+  if (Object.keys(properties).length === 0) {
+    logger.log("info", "No properties to update");
+    logger.end();
+    return true; // Not an error, just nothing to update
+  }
+
+  logger.log("info", "Sending update to Notion", {
+    propertyCount: Object.keys(properties).length,
+    propertyNames: Object.keys(properties),
+  });
+
+  try {
+    await client.pages.update({
+      page_id: pageId,
+      // Cast to expected type - we've already validated the property types above
+      properties: properties as Parameters<
+        typeof client.pages.update
+      >[0]["properties"],
+    });
+    logger.log("info", "Successfully updated properties", {
+      count: Object.keys(properties).length,
+      updatedProperties: Object.keys(properties),
+    });
+    logger.end();
+    return true;
+  } catch (error) {
+    logger.log("error", "Error updating page", {
+      error: error instanceof Error ? error.message : String(error),
+      pageId,
+      attemptedProperties: Object.keys(properties),
+    });
+    logger.end();
+    return false;
+  }
 }
