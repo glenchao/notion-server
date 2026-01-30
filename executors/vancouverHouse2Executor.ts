@@ -14,6 +14,8 @@ import {
 import {
   extractDatabaseIdFromPayload,
   extractPageIdFromPayload,
+  isValidUrl,
+  sanitizeUrlForNotion,
 } from "../utilities/notionUtils";
 
 // ============================================================================
@@ -630,6 +632,14 @@ async function appendSurroundingsTable(
   const logger = new ScopedLogger("appendSurroundingsTable");
   const client = getNotionClient();
 
+  logger.log("info", "Starting to append surroundings table", {
+    pageId,
+    parksCount: surroundings.nearbyParks.length,
+    transitStopsCount: surroundings.publicTransit.length,
+    sourcesCount: surroundings.sources.length,
+    hasTransitTimes: Boolean(surroundings.transitTimes),
+  });
+
   if (!client) {
     logger.log("error", "Notion client not available");
     logger.end();
@@ -653,6 +663,11 @@ async function appendSurroundingsTable(
 
     // Nearby Parks Table
     if (surroundings.nearbyParks.length > 0) {
+      logger.log("debug", "Adding nearby parks section", {
+        parkCount: surroundings.nearbyParks.length,
+        parkNames: surroundings.nearbyParks.map((p) => p.name),
+      });
+
       blocks.push({
         type: "heading_3",
         heading_3: {
@@ -712,10 +727,17 @@ async function appendSurroundingsTable(
           ],
         },
       });
+    } else {
+      logger.log("debug", "Skipping nearby parks section - no parks found");
     }
 
     // Public Transit Table
     if (surroundings.publicTransit.length > 0) {
+      logger.log("debug", "Adding public transit section", {
+        transitStopCount: surroundings.publicTransit.length,
+        transitTypes: [...new Set(surroundings.publicTransit.map((t) => t.type))],
+      });
+
       blocks.push({
         type: "heading_3",
         heading_3: {
@@ -777,9 +799,24 @@ async function appendSurroundingsTable(
           ],
         },
       });
+    } else {
+      logger.log("debug", "Skipping public transit section - no stops found");
     }
 
     // Transit Times Table
+    logger.log("debug", "Adding transit times section", {
+      toDowntown: surroundings.transitTimes.toDowntown.transitTimeMinutes,
+      toUBC: surroundings.transitTimes.toUBC.transitTimeMinutes,
+      toYVR: surroundings.transitTimes.toYVR.transitTimeMinutes,
+      toOakridgePark: surroundings.transitTimes.toOakridgePark.transitTimeMinutes,
+      hasGoogleMapsUrls: {
+        downtown: Boolean(surroundings.transitTimes.toDowntown.googleMapsUrl),
+        ubc: Boolean(surroundings.transitTimes.toUBC.googleMapsUrl),
+        yvr: Boolean(surroundings.transitTimes.toYVR.googleMapsUrl),
+        oakridge: Boolean(surroundings.transitTimes.toOakridgePark.googleMapsUrl),
+      },
+    });
+
     blocks.push({
       type: "heading_3",
       heading_3: {
@@ -798,24 +835,34 @@ async function appendSurroundingsTable(
       time: number,
       description: string,
       googleMapsUrl?: string | null,
-    ) => ({
-      type: "table_row" as const,
-      table_row: {
-        cells: [
-          [{ type: "text" as const, text: { content: destination } }],
-          [{ type: "text" as const, text: { content: `${time} min` } }],
-          [{ type: "text" as const, text: { content: description } }],
-          [
-            googleMapsUrl
-              ? {
-                  type: "text" as const,
-                  text: { content: "View Route", link: { url: googleMapsUrl } },
-                }
-              : { type: "text" as const, text: { content: "-" } },
+    ) => {
+      // Validate URL before using it - drop invalid URLs gracefully
+      const validUrl = sanitizeUrlForNotion(googleMapsUrl);
+      if (googleMapsUrl && !validUrl) {
+        logger.log("warn", `Invalid Google Maps URL dropped for ${destination}`, {
+          invalidUrl: googleMapsUrl,
+        });
+      }
+
+      return {
+        type: "table_row" as const,
+        table_row: {
+          cells: [
+            [{ type: "text" as const, text: { content: destination } }],
+            [{ type: "text" as const, text: { content: `${time} min` } }],
+            [{ type: "text" as const, text: { content: description } }],
+            [
+              validUrl
+                ? {
+                    type: "text" as const,
+                    text: { content: "View Route", link: { url: validUrl } },
+                  }
+                : { type: "text" as const, text: { content: "-" } },
+            ],
           ],
-        ],
-      },
-    });
+        },
+      };
+    };
 
     blocks.push({
       type: "table",
@@ -863,39 +910,94 @@ async function appendSurroundingsTable(
       },
     });
 
-    // Sources
+    // Sources - validate URLs and only link valid ones
     if (surroundings.sources.length > 0) {
-      blocks.push({
-        type: "paragraph",
-        paragraph: {
-          rich_text: [
-            { type: "text", text: { content: "Sources: " } },
-            ...surroundings.sources.slice(0, 5).map((source, i) => ({
-              type: "text" as const,
-              text: {
-                content:
-                  i === surroundings.sources.length - 1 || i === 4
-                    ? source
-                    : `${source}, `,
-                link: { url: source },
-              },
-            })),
-          ],
-        },
+      logger.log("debug", "Processing sources section", {
+        totalSources: surroundings.sources.length,
+        sourcesToProcess: Math.min(surroundings.sources.length, 5),
       });
+
+      const sourcesSlice = surroundings.sources.slice(0, 5);
+      const validSources: Array<{ text: string; url: string | null }> = [];
+      let invalidUrlCount = 0;
+
+      for (const source of sourcesSlice) {
+        const validUrl = sanitizeUrlForNotion(source);
+        if (!validUrl) {
+          invalidUrlCount++;
+          logger.log("warn", "Invalid source URL dropped", {
+            invalidUrl: source,
+          });
+        }
+        validSources.push({ text: source, url: validUrl });
+      }
+
+      logger.log("debug", "Sources validation complete", {
+        totalProcessed: sourcesSlice.length,
+        validUrls: sourcesSlice.length - invalidUrlCount,
+        invalidUrls: invalidUrlCount,
+      });
+
+      // Only add sources block if we have at least one valid source or text to show
+      if (validSources.length > 0) {
+        blocks.push({
+          type: "paragraph",
+          paragraph: {
+            rich_text: [
+              { type: "text", text: { content: "Sources: " } },
+              ...validSources.map((source, i) => {
+                const isLast = i === validSources.length - 1;
+                const content = isLast ? source.text : `${source.text}, `;
+
+                // If URL is valid, make it a link; otherwise just plain text
+                if (source.url) {
+                  return {
+                    type: "text" as const,
+                    text: {
+                      content,
+                      link: { url: source.url },
+                    },
+                  };
+                } else {
+                  return {
+                    type: "text" as const,
+                    text: { content },
+                  };
+                }
+              }),
+            ],
+          },
+        });
+      }
+    } else {
+      logger.log("debug", "No sources to add");
     }
+
+    logger.log("info", "Sending blocks to Notion API", {
+      blockCount: blocks.length,
+      blockTypes: blocks.map((b) => b.type),
+    });
 
     await client.blocks.children.append({
       block_id: pageId,
       children: blocks,
     });
 
-    logger.log("info", "Appended surroundings tables to page");
-    logger.end();
-  } catch (error) {
-    logger.log("error", "Error appending blocks", {
-      error: error instanceof Error ? error.message : String(error),
+    logger.log("info", "Successfully appended surroundings tables to page", {
+      pageId,
+      blockCount: blocks.length,
     });
     logger.end();
+  } catch (error) {
+    logger.log("error", "Error appending surroundings blocks to Notion", {
+      pageId,
+      error: error instanceof Error ? error.message : String(error),
+      errorName: error instanceof Error ? error.name : "Unknown",
+      // Include stack trace for debugging
+      stack: error instanceof Error ? error.stack : undefined,
+    });
+    logger.end();
+    // Re-throw to let caller know it failed
+    throw error;
   }
 }

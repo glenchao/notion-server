@@ -128,3 +128,40 @@ export function isPageEventFromDatabase(
   // Compare normalized IDs (without dashes, case-insensitive)
   return normalizeNotionId(parent.id) === normalizeNotionId(targetDatabaseId);
 }
+
+/**
+ * Validates if a string is a valid URL that Notion will accept
+ * Notion requires URLs to be properly formatted with http:// or https://
+ *
+ * @param url - The string to validate as a URL
+ * @returns True if the string is a valid URL
+ */
+export function isValidUrl(url: string | null | undefined): boolean {
+  if (!url || typeof url !== "string") {
+    return false;
+  }
+
+  try {
+    const parsed = new URL(url);
+    // Notion only accepts http and https protocols
+    return parsed.protocol === "http:" || parsed.protocol === "https:";
+  } catch {
+    return false;
+  }
+}
+
+/**
+ * Sanitizes a URL for use in Notion, returning null if invalid
+ * This allows graceful fallback when URLs are malformed
+ *
+ * @param url - The URL string to sanitize
+ * @returns The valid URL string, or null if invalid
+ */
+export function sanitizeUrlForNotion(
+  url: string | null | undefined,
+): string | null {
+  if (!isValidUrl(url)) {
+    return null;
+  }
+  return url as string;
+}
