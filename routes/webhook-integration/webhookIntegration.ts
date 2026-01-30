@@ -1,5 +1,6 @@
 import { getSessionData, ScopedLogger } from "../../logging/SimpleLogger.ts";
 import type { NotionWebhookEvent } from "../../types/webhook-events";
+import { processWebhookInBackground } from "../../utilities/backgroundProcessor";
 import { getProcessorsToExecute } from "../../utilities/processorLoader";
 import { validateWebhookRequest } from "../../validation/validation";
 import { handleVerificationRequest } from "../../validation/verification";
@@ -54,32 +55,18 @@ export async function handleIntegrationWebhook(
     payload,
   });
 
-  // Process the webhook payload
-  try {
-    const result = await handleWebhookPayload(payload);
-    logger.end();
-    return new Response(JSON.stringify({ success: true, ...result }), {
-      status: 200,
-      headers: { "Content-Type": "application/json" },
-    });
-  } catch (error) {
-    const errorMessage =
-      error instanceof Error ? error.message : "Unknown error";
-    logger.log("error", "Error processing webhook payload:", {
-      error: errorMessage,
-    });
-    logger.end();
-    return new Response(
-      JSON.stringify({
-        success: false,
-        error: errorMessage,
-      }),
-      {
-        status: 500,
-        headers: { "Content-Type": "application/json" },
-      },
-    );
-  }
+  // Acknowledge the webhook immediately to prevent Notion retries
+  // Process asynchronously in the background
+  logger.log("info", "Acknowledging webhook, processing in background");
+  logger.end();
+
+  // Fire-and-forget: process webhook without blocking the response
+  processWebhookInBackground(payload as NotionWebhookEvent);
+
+  return new Response(JSON.stringify({ success: true, acknowledged: true }), {
+    status: 200,
+    headers: { "Content-Type": "application/json" },
+  });
 }
 
 /**
