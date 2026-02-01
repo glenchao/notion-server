@@ -14,7 +14,6 @@ import {
 import {
   extractDatabaseIdFromPayload,
   extractPageIdFromPayload,
-  isValidUrl,
   sanitizeUrlForNotion,
 } from "../utilities/notionUtils";
 
@@ -430,7 +429,7 @@ export async function researchPropertyValues(
     const result = await callGemini({
       prompt,
       schema: PropertyValuesSchema,
-      model: "gemini-2.5-pro", // Use pro for better research
+      model: "gemini-2.5-flash",
       useSearch: true,
       useMaps: true,
     });
@@ -466,7 +465,7 @@ export async function researchSurroundings(
     const result = await callGemini({
       prompt,
       schema: SurroundingsSchema,
-      model: "gemini-2.5-pro",
+      model: "gemini-2.5-flash",
       useSearch: true,
       useMaps: true,
     });
@@ -735,7 +734,9 @@ async function appendSurroundingsTable(
     if (surroundings.publicTransit.length > 0) {
       logger.log("debug", "Adding public transit section", {
         transitStopCount: surroundings.publicTransit.length,
-        transitTypes: [...new Set(surroundings.publicTransit.map((t) => t.type))],
+        transitTypes: [
+          ...new Set(surroundings.publicTransit.map((t) => t.type)),
+        ],
       });
 
       blocks.push({
@@ -808,12 +809,15 @@ async function appendSurroundingsTable(
       toDowntown: surroundings.transitTimes.toDowntown.transitTimeMinutes,
       toUBC: surroundings.transitTimes.toUBC.transitTimeMinutes,
       toYVR: surroundings.transitTimes.toYVR.transitTimeMinutes,
-      toOakridgePark: surroundings.transitTimes.toOakridgePark.transitTimeMinutes,
+      toOakridgePark:
+        surroundings.transitTimes.toOakridgePark.transitTimeMinutes,
       hasGoogleMapsUrls: {
         downtown: Boolean(surroundings.transitTimes.toDowntown.googleMapsUrl),
         ubc: Boolean(surroundings.transitTimes.toUBC.googleMapsUrl),
         yvr: Boolean(surroundings.transitTimes.toYVR.googleMapsUrl),
-        oakridge: Boolean(surroundings.transitTimes.toOakridgePark.googleMapsUrl),
+        oakridge: Boolean(
+          surroundings.transitTimes.toOakridgePark.googleMapsUrl,
+        ),
       },
     });
 
@@ -839,9 +843,13 @@ async function appendSurroundingsTable(
       // Validate URL before using it - drop invalid URLs gracefully
       const validUrl = sanitizeUrlForNotion(googleMapsUrl);
       if (googleMapsUrl && !validUrl) {
-        logger.log("warn", `Invalid Google Maps URL dropped for ${destination}`, {
-          invalidUrl: googleMapsUrl,
-        });
+        logger.log(
+          "warn",
+          `Invalid Google Maps URL dropped for ${destination}`,
+          {
+            invalidUrl: googleMapsUrl,
+          },
+        );
       }
 
       return {
